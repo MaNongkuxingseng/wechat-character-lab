@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Local user data
+data/**
+!data/.gitkeep
+!data/*/
+!data/*/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+*.wav
+*.mp3
+*.ogg
+*.opus
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
