@@ -56,6 +56,28 @@ def test_session_rejects_unknown_role(client, test_session_factory):
     assert response.json()["detail"]["code"] == "role_not_found"
 
 
+def test_role_update_persists_profile(client, test_session_factory):
+    seed_roles(test_session_factory)
+
+    response = client.put(
+        "/api/roles/role_a",
+        json={"label": "我的角色", "profile": "偏好简短、直接的表达"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["label"] == "我的角色"
+    assert response.json()["profile"] == "偏好简短、直接的表达"
+
+
+def test_role_update_returns_not_found_for_unknown_role(client, test_session_factory):
+    seed_roles(test_session_factory)
+
+    response = client.put("/api/roles/missing", json={"label": "不存在"})
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "role_not_found"
+
+
 def test_websocket_validates_and_acknowledges_events(client, test_session_factory, monkeypatch):
     seed_roles(test_session_factory)
     session_id = "test-session"

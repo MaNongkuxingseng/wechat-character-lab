@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     app_name: str = "WeChat Character Lab API"
     database_url: str = "sqlite:///../data/character_lab.db"
+    inbox_path: str = "data/inbox"
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

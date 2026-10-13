@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -30,8 +31,8 @@ def test_mock_agents_keep_director_and_role_output_separate():
         consent_status="preset",
     )
 
-    assert "Mock 回复" in __import__("asyncio").run(MockRoleAgent().respond(role, "上下文"))
-    plan = __import__("asyncio").run(MockDirectorAgent().plan_next("主题", 0, ["role_a", "role_b"]))
+    assert "Mock 回复" in asyncio.run(MockRoleAgent().respond(role, "上下文"))
+    plan = asyncio.run(MockDirectorAgent().plan_next("主题", 0, ["role_a", "role_b"]))
     assert plan["speaker_role_id"] == "role_a"
     assert "text" not in plan
 
@@ -44,8 +45,6 @@ def test_mock_providers_do_not_call_external_services():
             await MockTTSProvider().synthesize("你好", "voice_a"),
             await MockBridgeAdapter().list_messages("source"),
         )
-
-    import asyncio
 
     llm_result, asr_result, tts_result, bridge_result = asyncio.run(run())
     assert llm_result.startswith("Mock 生成结果")

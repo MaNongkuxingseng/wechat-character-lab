@@ -47,6 +47,31 @@ pnpm typecheck
 pnpm build
 ```
 
+## 第二阶段导入流程
+
+将 WeChatBridge 导出的 ZIP 文件放入 `data/inbox/`，归档内应包含以下任一文件：
+`messages.json`、`messages.jsonl`、`messages.ndjson` 或 `messages.csv`。消息至少需要
+`speaker`（或 `speaker_label`）和 `text` 字段，可选 `id`、`sent_at`。
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/imports/inbox/scan
+Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/imports
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/imports/{source_id}/approve
+```
+
+扫描只创建 `pending_review` 来源，不会自动写入消息或记忆；审核接口支持传入
+`{"speaker_mapping":{"我":"role_a","朋友":"role_b"}}`，未知归档格式、重复消息 ID、归档被替换或路径越界都会被拒绝。
+
+角色资料可通过 `PUT /api/roles/{role_id}` 更新，SQLite 是唯一主存储：
+
+```json
+{
+  "label": "角色 A",
+  "profile": "偏好简短、直接的表达",
+  "style_profile": {"reply_length": "short"}
+}
+```
+
 ## 模块边界
 
 - `core/` 管理编排契约和内部事件，不解析导入归档。
