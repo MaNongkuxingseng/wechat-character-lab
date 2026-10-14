@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChatTimeline } from "./components/ChatTimeline";
+import { ProfileWorkbench } from "./components/ProfileWorkbench";
 import { RoleBadge } from "./components/RoleBadge";
 import { TopicPanel } from "./components/TopicPanel";
 import { VoiceControls } from "./components/VoiceControls";
@@ -93,6 +94,7 @@ export default function App() {
               </section>
             </aside>
           </div>
+          <ProfileWorkbench roles={roles} connected={connected} />
           <footer className="page-footer"><span>WECHAT CHARACTER LAB</span><span>个人本地工作区</span></footer>
         </section>
       </div>

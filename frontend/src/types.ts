@@ -17,6 +17,41 @@ export interface SessionRead {
   created_at: string;
 }
 
+export interface ProfileEvidence {
+  message_id: string;
+  speaker_label: string;
+  sent_at: string | null;
+  excerpt: string;
+  rationale: string;
+}
+
+export interface ProfileTrait {
+  id: string;
+  category: string;
+  key: string;
+  description: string;
+  confidence: number;
+  context: string | null;
+  review_status: "pending" | "accepted" | "rejected";
+  reviewer_note: string | null;
+  evidence: ProfileEvidence[];
+}
+
+export interface ProfileVersionSummary {
+  id: string;
+  role_id: string;
+  version: number;
+  status: "draft" | "approved" | "superseded";
+  analyzer: string;
+  sample_count: number;
+  created_at: string;
+  approved_at: string | null;
+}
+
+export interface ProfileVersion extends ProfileVersionSummary {
+  traits: ProfileTrait[];
+}
+
 export type ServerEvent =
   | { type: "connection.ready"; session_id: string; seq: number }
   | { type: "connection.pong"; request_id?: string | null; seq: number }
