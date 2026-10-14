@@ -29,6 +29,7 @@ data/**
 *.mp3
 *.ogg
 *.opus
+wechatauto_logs/
 
 # Editors and operating systems
 .idea/

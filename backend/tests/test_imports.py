@@ -57,6 +57,33 @@ def test_archive_parser_rejects_unknown_format(tmp_path: Path):
         raise AssertionError("未知归档格式应当被拒绝")
 
 
+def test_archive_parser_preserves_provider_metadata(tmp_path: Path):
+    archive = _write_archive(
+        tmp_path,
+        [
+            {
+                "external_id": "wx-1",
+                "speaker_label": "朋友",
+                "text": "[语音]",
+                "sent_at": "2024-01-02T03:04:05Z",
+                "message_type": "语音",
+                "type_code": 34,
+                "sender_id": 7,
+            }
+        ],
+        "provider-metadata.zip",
+    )
+
+    parsed = parse_archive(archive)
+
+    assert parsed[0].metadata == {
+        "message_type": "语音",
+        "type_code": 34,
+        "sender_id": 7,
+        "source_row": 1,
+    }
+
+
 def test_archive_parser_reports_malformed_json_as_import_error(tmp_path: Path):
     archive = tmp_path / "malformed.zip"
     with zipfile.ZipFile(archive, "w") as handle:

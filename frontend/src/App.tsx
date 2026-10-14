@@ -9,7 +9,7 @@ import { useSession } from "./hooks/useSession";
 
 export default function App() {
   const [topic, setTopic] = useState("");
-  const { roles, session, connection, events, error, startSession } = useSession();
+  const { roles, session, connection, events, error, startSession, sendMessage, stopSession } = useSession();
   const connected = connection === "connected";
 
   return (
@@ -78,7 +78,7 @@ export default function App() {
                 disabled={!connected}
               />
               {error && <div className="error-banner" role="alert">{error}</div>}
-              <ChatTimeline session={session} events={events} />
+              <ChatTimeline session={session} events={events} onSend={sendMessage} onStop={stopSession} />
             </div>
             <aside className="detail-column">
               <VoiceControls />
@@ -90,7 +90,8 @@ export default function App() {
                 <dl className="runtime-list">
                   <div><dt>会话引擎</dt><dd>Mock / 待接入</dd></div>
                   <div><dt>资料库</dt><dd>SQLite</dd></div>
-                  <div><dt>导入适配器</dt><dd>Bridge Mock</dd></div>
+                  <div><dt>导入适配器</dt><dd>WeChat ZIP / 本地</dd></div>
+                  <div><dt>分析器</dt><dd>点击生成草稿</dd></div>
                 </dl>
               </section>
             </aside>

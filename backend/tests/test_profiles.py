@@ -113,6 +113,28 @@ def test_analysis_requires_three_approved_mapped_messages(client, test_session_f
     assert response.json()["detail"]["code"] == "insufficient_samples"
 
 
+def test_profile_analysis_excludes_media_messages(client, test_session_factory):
+    seed_profile_messages(test_session_factory)
+    with test_session_factory.begin() as db:
+        db.add(
+            ImportedMessage(
+                id="a-image",
+                source_id="approved-source",
+                external_id="a-image",
+                speaker_label="role_a",
+                speaker_role_id="role_a",
+                text="[图片]",
+                sent_at=datetime.now(UTC),
+                metadata_json={"message_type": "图片", "type_code": 3},
+            )
+        )
+
+    response = client.post("/api/roles/role_a/profiles/analyze")
+
+    assert response.status_code == 201
+    assert response.json()["sample_count"] == 3
+
+
 def test_profile_publish_requires_review_and_keeps_history(client, test_session_factory):
     seed_profile_messages(test_session_factory)
     first = client.post("/api/roles/role_a/profiles/analyze").json()

@@ -12,7 +12,7 @@ ANALYZER = ObservableTextAnalyzer()
 
 def create_draft(db: Session, role_id: str) -> ProfileVersion:
     """仅用已审核且映射给目标角色的消息创建新的独立草稿版本。"""
-    messages = list(
+    candidate_messages = list(
         db.scalars(
             select(ImportedMessage)
             .join(Source, Source.id == ImportedMessage.source_id)
@@ -21,9 +21,12 @@ def create_draft(db: Session, role_id: str) -> ProfileVersion:
                 ImportedMessage.speaker_role_id == role_id,
             )
             .order_by(ImportedMessage.sent_at, ImportedMessage.id)
-            .limit(ANALYZER.maximum_sample_count)
         )
     )
+    # 画像只使用文字消息；媒体/系统占位符会扭曲长度和标点统计。
+    messages = [message for message in candidate_messages if _is_text_message(message)][
+        : ANALYZER.maximum_sample_count
+    ]
     drafts = ANALYZER.analyze(messages)
     latest_version = db.scalar(
         select(func.max(ProfileVersion.version)).where(ProfileVersion.role_id == role_id)
@@ -41,6 +44,7 @@ def create_draft(db: Session, role_id: str) -> ProfileVersion:
     db.flush()
 
     for draft in drafts:
+        created_at = datetime.now(UTC)
         trait = ProfileTrait(
             id=str(uuid4()),
             profile_version_id=version.id,
@@ -50,6 +54,7 @@ def create_draft(db: Session, role_id: str) -> ProfileVersion:
             confidence=draft.confidence,
             context=None,
             review_status="pending",
+            created_at=created_at,
         )
         db.add(trait)
         db.flush()
@@ -65,6 +70,21 @@ def create_draft(db: Session, role_id: str) -> ProfileVersion:
     db.commit()
     db.refresh(version)
     return version
+
+
+def _is_text_message(message: ImportedMessage) -> bool:
+    """判断导入消息是否为可用于文字风格分析的文本记录。"""
+    metadata = message.metadata_json or {}
+    message_type = metadata.get("message_type")
+    type_code = metadata.get("type_code")
+    if message_type is not None and str(message_type) not in {"文本", "text", "Text"}:
+        return False
+    if type_code is not None:
+        try:
+            return int(type_code) == 1
+        except (TypeError, ValueError):
+            return False
+    return bool(message.text.strip())
 
 
 def approve_version(db: Session, version: ProfileVersion) -> None:

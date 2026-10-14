@@ -11,11 +11,25 @@ class ClientPing(BaseModel):
 
 
 class UserMessageEvent(BaseModel):
-    """用户文本事件契约；当前仅确认接收，尚未路由给 Agent。"""
+    """用户插话事件；会保存为独立的用户 Turn，并触发下一位角色回复。"""
 
     type: Literal["user.message"]
     text: str = Field(min_length=1, max_length=4000)
     client_message_id: str
+
+
+class SessionStartEvent(BaseModel):
+    """启动 A/B 自动轮流对话。"""
+
+    type: Literal["session.start"]
+    client_message_id: str | None = None
+
+
+class SessionStopEvent(BaseModel):
+    """停止后续自动轮次。"""
+
+    type: Literal["session.stop"]
+    client_message_id: str | None = None
 
 
 class ConnectionReady(BaseModel):
@@ -27,7 +41,7 @@ class ConnectionReady(BaseModel):
 
 
 class EventAccepted(BaseModel):
-    """确认工程骨架中的事件已通过协议校验。"""
+    """确认客户端事件已通过协议校验并进入编排器。"""
 
     type: Literal["event.accepted"] = "event.accepted"
     client_message_id: str
@@ -51,4 +65,4 @@ class ProtocolError(BaseModel):
     seq: int = 0
 
 
-ClientEvent = ClientPing | UserMessageEvent
+ClientEvent = ClientPing | UserMessageEvent | SessionStartEvent | SessionStopEvent

@@ -53,6 +53,17 @@ def test_mock_providers_do_not_call_external_services():
     assert bridge_result == []
 
 
+def test_voice_asset_schema_is_local_only():
+    """语音资产契约只描述本地清单，不携带音频字节。"""
+    from app.api.voice import voice_assets
+
+    payload = voice_assets()
+
+    assert set(payload) == {"available", "format", "count", "bytes_total", "files"}
+    assert payload["format"] == "SILK"
+    assert all("data" not in item for item in payload["files"])
+
+
 def test_normalizer_trims_text_and_speaker():
     message = NormalizedMessage(external_id="m-1", speaker_label="  对方  ", text="  你好  ")
 

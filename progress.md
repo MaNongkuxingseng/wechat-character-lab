@@ -54,3 +54,66 @@
 - 验证结果：前端 `pnpm run typecheck` 和 `pnpm run build` 通过；后端 20 项测试通过；Ruff 检查通过；`git diff --check` 通过。
 - 浏览器可视化验收未完成：Windows 浏览器自动化因无法可靠判定现有 Edge 窗口地址而停止；未继续对窗口输入或操作。
 - 当前阶段状态：审核 UI 首版已交付，阶段 2 仍进行中。后续应定义可证伪的语言风格指标、情境/时间窗口切分、低置信度展示及留出样本评测，再评估是否引入允许外发素材的真实分析器。
+
+## 2026-10-14：语音消息完整性核对
+
+- 对照三层来源：原始 wechatauto JSON、微信消息库 `VoiceInfo`/语音消息行、项目导出的 `data/audio/pengna_20261014/manifest.json`。
+- 验证结果：5 / 5 / 5 完全一致；原始消息与数据库按 `(local_id, server_id)` 无差集；5 条媒体状态均为 `ok`，导出文件总大小 101,164 bytes。
+- 发言人分布：彭娜 1 条、我 4 条。未发现语音记录遗漏；当前没有 SILK 解码器，因此尚未验证可播放时长或音频内容。
+- 后续动作：先安装/接入本地 SILK 解码器并做格式校验，再决定是否做 ASR 和韵律特征提取；未经授权不做真人声音克隆。
+
+## 2026-10-14：当前开发状态快照
+
+- 本地素材：1 个已批准来源，37,769 条消息；角色 A（我）16,371 条，角色 B（彭娜）21,398 条。
+- 画像域：消息证据已入库，但 `profile_versions=0`、`profile_traits=0`；尚未生成可审核草稿，也没有发布任何画像版本。
+- 语音域：5 条语音消息与 5 个 SILK 文件一一对应，共 101,164 bytes；尚未完成 SILK 解码、ASR、韵律特征提取或真实 TTS。
+- 服务：更新版 API `127.0.0.1:8001` 和前端 `127.0.0.1:5174` 可用；旧版 `8000/5173` 仍在运行，后续验收应使用更新版端口。
+- 工作区：导入器 metadata 兼容、CORS、转换脚本及本次进度文档存在未提交改动；真实聊天 JSON、ZIP、音频文件均被 `.gitignore` 排除。
+
+## 2026-10-14：文字对话与语音模块开发启动
+
+- 用户已审核 A/B 画像，开始阶段 5/6 的可运行闭环。
+- 约束：先使用本地 Mock Agent/ASR/TTS，不调用网络、不上传聊天或音频；事件和语音响应必须标注 provider 与可用性。
+- 本轮目标：WebSocket 自动轮流对话、用户插话、停止/结束状态、Turn/Event 持久化，以及转写/合成接口和前端可操作状态。
+
+## 2026-10-14：文字对话与语音模块首版完成
+
+- 新增 `ConversationOrchestrator`：Director 只决定 A/B 发言顺序，Role Agent 只生成 Mock 台词；上下文仅包含主题、角色资料和最近 6 条会话 Turn。
+- WebSocket 新增 `session.start`、`session.stop`；连接后自动轮流生成 A/B 回复，用户 `user.message` 插话会保存为无角色 Turn 并触发下一轮；停止或断开连接会取消后台轮次任务。
+- `Turn` 与 `SessionEvent` 写入 SQLite；客户端收到 `session.state`、`turn.created`、`message.created` 等事件，前端时间线已显示角色、轮次和文本。
+- 新增 `POST /api/voice/transcribe`（15 MiB 本地上传限制）和 `POST /api/voice/synthesize`；Mock ASR 返回占位转写，Mock TTS 明确返回 `available=false`，不生成假音频。
+- 前端语音面板支持选择 A/B 预设音色、导入音频测试 ASR 和查看 TTS 状态；尚未宣称实时录音、SILK 解码或真人声音克隆已完成。
+- 验证：后端 28 项测试通过，Ruff 通过，前端 `pnpm run typecheck` 与 `pnpm run build` 通过。
+- 运行环境：已重启项目自己的 `127.0.0.1:8001` 服务加载新代码；验收请打开 `http://127.0.0.1:5174/`，不要使用仍在运行旧代码的 `5173` 页面。
+- Git 检查：`wechatauto_logs/` 已加入忽略；聊天 JSON、ZIP、SILK、数据库和本机日志均未进入工作区提交候选。
+
+## 2026-10-14：语音解析与视频音轨分析完成
+
+- 新增 `voice_analyses` 表和 `0003_voice_analysis` migration；仅保存媒体相对路径、SHA-256、格式、状态、声学摘要和错误，不保存音频字节。
+- 新增 `MediaAnalyzer`：标准库 WAV 可计算真实时长、采样率、声道、RMS dB、静音比例；SILK 支持带 `0x02` 包前缀的 `#!SILK_V3` 结构校验并标记 `validated_pending_decode`。
+- 新增 `POST /api/voice/analyze`、`GET /api/voice/analyses`；角色 A/B 样本隔离，默认低于 3 个可解码样本时扫描 data 下的视频。
+- 视频解析优先使用系统 `ffprobe/ffmpeg`，否则可选 `PyAV` 读取音轨元数据；依赖组为 `uv sync --extra media`。无工具时返回 `video_audio_pending_tool`，不伪造特征。
+- 实际分析现有素材：原始语音覆盖 A=4、B=1；5/5 SILK 文件均为 `validated_pending_decode`，可解码声学样本 A=0、B=0；当前 data 下未发现视频候选。已安装 PyAV 17.1.0 与 bundled ffmpeg 7.1，可在发现视频后进行音轨帧分析。
+- 验证：后端 31 项测试、Ruff、前端生产构建全部通过；Alembic 已升级至 `0003_voice_analysis`。
+
+## 2026-10-14：语音解析与视频音轨分析启动
+
+- 当前真实语音样本为 5 个 SILK 文件（彭娜 1、我 4），尚无可直接播放的 WAV/MP3；本机未发现 `ffmpeg/ffprobe` 或音频 Python 库。
+- 本轮将增加本地媒体分析器和 SQLite 记录：能解析的格式提供实际时长/采样率/声道/能量摘要，SILK 先做容器和帧结构校验并标记待解码。
+- 当某角色可用语音样本低于阈值时，扫描本地视频文件；只有检测到可用 `ffprobe/ffmpeg` 才提取音轨，工具缺失不伪造分析结果。
+
+## 2026-10-14：前端数据可用性修复与画像草稿
+
+- 修复前端 API 默认地址：从旧的 `8000` 改为新版 `8001`，保留 `VITE_API_BASE_URL` 覆盖能力；`5173` 与 `5174` 页面均返回 HTTP 200。
+- 新增 `GET /api/voice/assets`，只返回本地 SILK 清单元数据，不返回音频字节、不触发上传；语音面板现在显示 5 段素材和总字节数，并明确 ASR/TTS 仍为 Mock。
+- 画像分析明确排除图片、语音、视频和系统消息，只使用文字记录；补充媒体排除回归测试。
+- 修复画像特征 `created_at` 未赋值导致 SQLite 500 的问题。
+- 已为角色 A/B 生成各一个 `v1 draft`：每个 1,000 条文字样本、2 项统计特征，等待前端逐项审核；未自动发布。
+- 验证结果：后端 26 项测试、Ruff、前端 typecheck/build 均通过；API 可读到 approved 来源、A/B 草稿和 5 个语音资产。
+
+## 2026-10-14：请求复合主题实测
+
+- 使用新版页面 `5174` 创建主题为“请求复合”的会话，WebSocket 成功连接，A/B 自动轮流生成 12 轮，状态正常变为 `completed`。
+- 回复包含角色 A/B 不同的已审核画像统计上下文（消息长度中位数、问句比例），证明画像上下文已进入 Mock Agent 请求。
+- 插话实测未通过：创建后约 1 秒内自动完成 12 轮；用户随后输入并点击发送，时间线未出现 `user.message`。根因是自动轮次没有用户可用窗口，且已完成会话仍保留输入框但发送不会生效。
+- 当前语音 UI 已显示 5 段 SILK、101,164 bytes、尚未解码；ASR 可测试，TTS 尚未配置。待完成语音解析按钮与本地音频上传测试。

@@ -28,6 +28,7 @@ def test_initial_migration_creates_schema_and_seed_roles(tmp_path, monkeypatch):
                 "profile_versions",
                 "profile_traits",
                 "profile_evidence",
+                "voice_analyses",
             }.issubset(set(inspector.get_table_names()))
             with engine.connect() as connection:
                 role_ids = {row[0] for row in connection.exec_driver_sql("SELECT id FROM roles")}

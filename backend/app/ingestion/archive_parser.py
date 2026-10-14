@@ -65,12 +65,24 @@ def _normalize_row(row: Any, index: int) -> NormalizedMessage:
         raise ArchiveParseError(f"第 {index} 条消息缺少 speaker 和 text 字段")
     sent_at_value = _first_value(row, "sent_at", "timestamp", "created_at")
     sent_at = _parse_datetime(sent_at_value) if sent_at_value else None
+    known_fields = {
+        "external_id", "message_id", "id", "speaker_label", "speaker", "sender",
+        "from", "text", "content", "message", "sent_at", "timestamp", "created_at",
+        "metadata",
+    }
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
     return NormalizedMessage(
         external_id=str(external_id),
         speaker_label=str(speaker),
         text=str(text),
         sent_at=sent_at,
-        metadata={"source_row": index},
+        metadata={
+            **metadata,
+            **{key: value for key, value in row.items() if key not in known_fields},
+            "source_row": index,
+        },
     )
 
 

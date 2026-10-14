@@ -71,8 +71,76 @@ export interface ImportPreview {
   }>;
 }
 
+export interface VoiceCapabilities {
+  asr: { provider: string; available: boolean; streaming?: boolean };
+  tts: { provider: string; available: boolean; streaming?: boolean };
+  media_analysis?: {
+    provider: string;
+    available: boolean;
+    silk_decoder: boolean;
+    video_audio: boolean;
+  };
+}
+
+export interface VoiceAsset {
+  file: string;
+  speaker_label: string;
+  sent_at_utc: string;
+  bytes: number;
+  sha256: string;
+}
+
+export interface VoiceAssets {
+  available: boolean;
+  format: string;
+  count: number;
+  bytes_total: number;
+  files: VoiceAsset[];
+}
+
+export interface VoiceAnalysis {
+  id: string;
+  role_id: string | null;
+  source_path: string;
+  source_kind: string;
+  media_format: string;
+  status: string;
+  derived_from_video: boolean;
+  duration_ms: number | null;
+  sample_rate: number | null;
+  channels: number | null;
+  rms_db: number | null;
+  silence_ratio: number | null;
+  transcript: string | null;
+  sha256: string;
+  metadata: Record<string, unknown>;
+  error: string | null;
+  analyzed_at: string;
+}
+
 export type ServerEvent =
   | { type: "connection.ready"; session_id: string; seq: number }
   | { type: "connection.pong"; request_id?: string | null; seq: number }
   | { type: "event.accepted"; client_message_id: string; seq: number }
+  | { type: "session.state"; status: string; seq: number }
+  | {
+      type: "turn.created";
+      turn_id: string;
+      turn: number;
+      speaker_role_id: string | null;
+      speaker_label: string;
+      text: string;
+      interrupted: boolean;
+      seq: number;
+    }
+  | {
+      type: "message.created";
+      turn_id: string;
+      turn: number;
+      speaker_role_id: string | null;
+      speaker_label: string;
+      text: string;
+      interrupted: boolean;
+      seq: number;
+    }
   | { type: "protocol.error"; code: string; message: string; seq: number };

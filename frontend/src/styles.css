@@ -87,8 +87,18 @@ textarea::placeholder { color: #a2aaa4; }
 .event-dot { width: 6px; height: 6px; border-radius: 50%; background: #6a9c78; }
 .event-name { color: #4d5c52; font: 11px var(--mono); }
 .event-meta { margin-left: auto; color: #9aa29c; font: 10px var(--mono); }
+.message-list { align-self: stretch; width: 100%; margin: 0; padding: 12px 16px; list-style: none; }
+.message-bubble { max-width: 82%; margin: 0 0 10px; padding: 9px 11px; border: 1px solid #e0e7e0; border-radius: 5px; background: #fff; }
+.message-bubble--role_b { margin-left: auto; border-color: #f0d8cf; background: #fff8f5; }
+.message-bubble--user { margin-right: auto; border-color: #d4e6d8; background: #f5fbf6; }
+.message-meta { display: flex; justify-content: space-between; gap: 16px; color: #647168; font-size: 9px; }
+.message-meta span { color: #9aa29c; font: 9px var(--mono); }
+.message-bubble p { margin: 6px 0 0; color: #39453d; font-size: 11px; line-height: 1.55; }
 .timeline-footer { display: flex; justify-content: space-between; align-items: center; min-height: 43px; color: #969e98; font-size: 10px; }
 .icon-button { width: 27px; height: 27px; border-radius: 4px; background: #edf0ed; font-size: 16px; }
+.message-compose { display: flex; width: 100%; gap: 6px; }
+.message-compose input { min-width: 0; flex: 1; height: 31px; padding: 0 9px; border: 1px solid #dfe5df; border-radius: 4px; background: #fff; font-size: 10px; }
+.stop-button { height: 31px; padding: 0 8px; border: 1px solid #ead4cb; border-radius: 4px; background: #fff8f5; color: #a7614d; font-size: 10px; cursor: pointer; }
 .detail-column { display: flex; flex-direction: column; gap: 28px; }
 .voice-controls, .runtime-panel { padding-top: 20px; }
 .voice-status { display: flex; align-items: center; gap: 10px; min-height: 67px; padding: 10px; border: 1px solid #e2e7e2; border-radius: 5px; color: #87918a; font-size: 10px; }
@@ -97,6 +107,20 @@ textarea::placeholder { color: #a2aaa4; }
 .voice-wave i:nth-child(2), .voice-wave i:nth-child(4) { height: 13px; }
 .voice-wave i:nth-child(3) { height: 18px; background: #d58970; }
 .voice-status button { margin-left: auto; padding: 6px 8px; border: 1px solid #e0e5e0; border-radius: 4px; background: #f7f8f6; color: #929b94; font-size: 10px; }
+.voice-upload-button { margin-left: auto; padding: 6px 8px; border: 1px solid #e0e5e0; border-radius: 4px; background: #f7f8f6; color: #69766d; font-size: 10px; cursor: pointer; }
+.voice-upload-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.voice-test-row { display: flex; gap: 7px; margin-top: 10px; }
+.voice-test-row select { min-width: 0; flex: 1; height: 30px; padding: 0 6px; border: 1px solid #dfe5df; border-radius: 4px; background: #fff; color: #617067; font-size: 10px; }
+.voice-transcript { margin-top: 8px; padding: 8px 10px; border: 1px solid #e2e7e2; border-radius: 4px; color: #647168; font-size: 10px; line-height: 1.5; }
+.voice-analysis-button { width: 100%; margin-top: 10px; }
+.voice-analysis-notice { margin-top: 8px; padding: 8px 10px; border: 1px solid #dce8de; border-radius: 4px; background: #f4faf5; color: #54745d; font-size: 9px; line-height: 1.5; }
+.voice-analysis-list { max-height: 150px; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none; border: 1px solid #e2e7e2; border-radius: 4px; }
+.voice-analysis-list li { display: flex; justify-content: space-between; gap: 10px; padding: 7px 9px; border-bottom: 1px solid #edf0ed; color: #69766d; font-size: 9px; }
+.voice-analysis-list li:last-child { border-bottom: 0; }
+.voice-analysis-list strong { color: #809087; font: 9px var(--mono); }
+.voice-summary { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; margin-top: 10px; padding: 9px 10px; border: 1px solid #e2e7e2; border-radius: 5px; background: rgba(255,255,255,.5); color: #7e8981; font-size: 10px; }
+.voice-summary strong { color: #4f6958; font: 10px var(--mono); }
+.voice-summary small { grid-column: 1 / -1; color: #9aa29c; font-size: 9px; }
 .runtime-list { margin: 0; }
 .runtime-list div { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid #e8ece8; font-size: 10px; }
 .runtime-list dt { color: #838d86; }

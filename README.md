@@ -1,6 +1,6 @@
 # 微信角色实验室（WeChat Character Lab）
 
-这是一个本地优先（local-first）的双角色社交模拟系统工程骨架。当前版本提供 API/WebSocket 契约、SQLite 持久化、Mock Provider 边界和基础前端工作台；尚未实现真实对话生成或真实 WeChatBridge 导入。
+这是一个本地优先（local-first）的双角色社交模拟系统。当前版本已提供基于已审核角色配置的本地 Mock A/B 自动对话、用户文字插话、会话停止、SQLite 事件持久化，以及 ASR/TTS 语音接口骨架；真实 LLM、ASR、TTS 和 WeChatBridge 仍未接入。
 
 ## 环境要求
 
@@ -16,10 +16,10 @@ cd backend
 uv sync --extra dev
 Copy-Item .env.example .env
 uv run alembic upgrade head
-uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-API 文档地址为 `http://127.0.0.1:8000/docs`。后端默认只监听本机回环地址，不暴露到局域网。
+API 文档地址为 `http://127.0.0.1:8001/docs`。后端默认只监听本机回环地址，不暴露到局域网。
 
 ## 启动前端
 
@@ -31,7 +31,40 @@ pnpm install
 pnpm dev
 ```
 
-前端默认连接 `http://127.0.0.1:8000`；如需调整，可设置 `VITE_API_BASE_URL`。
+前端开发地址通常为 `http://127.0.0.1:5174/`，默认连接 `http://127.0.0.1:8001`；如需调整，可设置 `VITE_API_BASE_URL`。如果 `5173` 上仍有旧进程，请使用 `5174` 验收本轮功能。
+
+## 文字对话
+
+在工作台输入主题并创建会话后，前端会自动建立
+`/api/sessions/{session_id}/events` WebSocket，并发送 `session.start`。本地 Mock Director
+按 A/B 轮流选择发言角色，Mock Role Agent 根据主题、角色资料和最近 6 条 Turn 生成可识别的占位文本。
+用户可在时间线底部发送 `user.message` 插话，或发送 `session.stop` 停止后续轮次。每条 `Turn`
+和 `SessionEvent` 均写入 SQLite，便于后续实现断线回放和真实 Provider 替换。
+
+当前事件类型包括：`connection.ready`、`session.state`、`turn.created`、`message.created`、
+`event.accepted`、`protocol.error`。Mock 台词不代表已经完成真实性格复现。
+
+## 语音接口（Mock）
+
+能力查询：`GET /api/voice/capabilities`；本地音频测试转写：
+`POST /api/voice/transcribe`（multipart 字段 `file`，最大 15 MiB）；TTS 请求：
+`POST /api/voice/synthesize`，请求体为 `{"text":"你好","voice_id":"preset-a"}`。
+当前 ASR 返回明确的 Mock 文本，TTS 返回 `available=false` 和 `audio_url=null`，不会生成假音频。
+前端语音面板可导入音频测试 ASR、选择 A/B 预设音色并查看 TTS 未配置提示；尚未实现浏览器
+MediaRecorder、SILK 解码、流式播放或真人声音克隆。
+
+## 语音解析与视频音轨分析
+
+执行 `cd backend; uv sync --extra media` 安装本地媒体依赖后，可调用
+`POST /api/voice/analyze`。服务会先分析 `data/audio/` 中的微信语音，再检查每个角色的
+可用解码样本是否低于默认 3 条；样本不足时扫描 `data/` 下的 MP4/MOV/MKV 等视频。
+视频结果会带 `derived_from_video=true`，不会混入微信语音原件统计。
+
+解析状态分为 `decoded`（可计算时长、采样率、声道、RMS 与静音比例）、
+`decoded_metadata`（仅能读取视频音轨元数据）、`validated_pending_decode`（SILK 文件头和
+封装已校验，但当前没有专用 SILK decoder）、`video_audio_pending_tool` 和错误状态。
+SILK 不能仅凭字节数推断时长或音高；安装专用 decoder 后可替换对应 Provider。分析摘要写入
+SQLite 的 `voice_analyses` 表，不保存音频字节。
 
 ## 验证
 

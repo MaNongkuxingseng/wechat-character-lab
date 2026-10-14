@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,6 +30,7 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Con
         turn_limit=payload.turn_limit,
         turn_count=0,
         settings={"role_ids": payload.role_ids},
+        created_at=datetime.now(UTC),
     )
     db.add(session)
     db.commit()

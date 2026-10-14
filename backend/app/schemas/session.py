@@ -24,7 +24,7 @@ class SessionCreate(BaseModel):
 
 
 class SessionRead(BaseModel):
-    """稳定的会话响应；当前工程骨架不会启动 Agent 对话循环。"""
+    """稳定的会话响应。"""
 
     model_config = ConfigDict(from_attributes=True)
 

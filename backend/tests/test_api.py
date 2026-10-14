@@ -103,3 +103,78 @@ def test_websocket_validates_and_acknowledges_events(client, test_session_factor
         assert websocket.receive_json()["type"] == "event.accepted"
         websocket.send_json({"type": "unsupported.event"})
         assert websocket.receive_json()["code"] == "invalid_event"
+
+
+def test_websocket_runs_mock_turns_and_accepts_stop(client, test_session_factory, monkeypatch):
+    seed_roles(test_session_factory)
+    session_id = "running-session"
+    with test_session_factory.begin() as db:
+        db.add(
+            ConversationSession(
+                id=session_id,
+                mode="topic",
+                topic="本地测试",
+                status="created",
+                turn_limit=4,
+                turn_count=0,
+                settings={"role_ids": ["role_a", "role_b"]},
+            )
+        )
+    monkeypatch.setattr(events_api, "SessionLocal", test_session_factory)
+
+    with client.websocket_connect(f"/api/sessions/{session_id}/events") as websocket:
+        assert websocket.receive_json()["type"] == "connection.ready"
+        websocket.send_json({"type": "session.start", "client_message_id": "start-1"})
+        assert websocket.receive_json()["type"] == "event.accepted"
+        assert websocket.receive_json()["type"] == "session.state"
+        assert websocket.receive_json()["type"] == "session.state"
+        first_turn = websocket.receive_json()
+        assert first_turn["type"] == "turn.created"
+        assert first_turn["speaker_role_id"] == "role_a"
+        assert websocket.receive_json()["type"] == "message.created"
+        websocket.send_json({"type": "user.message", "client_message_id": "user-1", "text": "插话"})
+        assert websocket.receive_json()["type"] == "event.accepted"
+        assert websocket.receive_json()["type"] == "turn.created"
+        assert websocket.receive_json()["type"] == "message.created"
+        websocket.send_json({"type": "session.stop", "client_message_id": "stop-1"})
+        stop_events = []
+        while True:
+            event = websocket.receive_json()
+            stop_events.append(event)
+            if event["type"] == "session.state" and event.get("status") == "completed":
+                break
+        stop_types = [event["type"] for event in stop_events]
+        assert "event.accepted" in stop_types
+        assert stop_types.count("session.state") >= 2
+        with test_session_factory() as db:
+            assert db.get(ConversationSession, session_id).status == "completed"
+
+
+def test_voice_mock_endpoints_are_explicit(client):
+    response = client.post(
+        "/api/voice/transcribe",
+        files={"file": ("sample.wav", b"audio", "audio/wav")},
+    )
+    assert response.status_code == 200
+    assert response.json()["provider"] == "mock"
+    assert response.json()["text"].startswith("Mock")
+
+    response = client.post("/api/voice/synthesize", json={"text": "你好", "voice_id": "preset-a"})
+    assert response.status_code == 200
+    assert response.json()["available"] is False
+    assert response.json()["audio_url"] is None
+
+
+def test_voice_analysis_contract_reports_local_capabilities(client):
+    capabilities = client.get("/api/voice/capabilities")
+    assert capabilities.status_code == 200
+    assert capabilities.json()["media_analysis"] == {
+        "provider": "local",
+        "available": True,
+        "silk_decoder": False,
+        "video_audio": True,
+    }
+
+    response = client.get("/api/voice/analyses")
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
