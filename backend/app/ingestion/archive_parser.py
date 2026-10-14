@@ -8,6 +8,8 @@ from typing import Any
 
 from app.schemas.message import NormalizedMessage
 
+MAX_MESSAGE_FILE_SIZE = 100 * 1024 * 1024
+
 
 class ArchiveParseError(ValueError):
     """归档不符合当前公开导入契约时抛出的可展示错误。"""
@@ -24,17 +26,22 @@ def parse_archive(path: Path) -> list[NormalizedMessage]:
                 raise ArchiveParseError(
                     "归档中未找到 messages.json、messages.jsonl、messages.ndjson 或 messages.csv"
                 )
+            if archive.getinfo(member).file_size > MAX_MESSAGE_FILE_SIZE:
+                raise ArchiveParseError("归档内的消息文件超过 100 MiB 限制")
             raw = archive.read(member)
     except zipfile.BadZipFile as exc:
         raise ArchiveParseError("ZIP 归档损坏或无法读取") from exc
 
-    if member.lower().endswith(".csv"):
-        rows = list(csv.DictReader(io.StringIO(raw.decode("utf-8-sig"))))
-    elif member.lower().endswith((".jsonl", ".ndjson")):
-        rows = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
-    else:
-        document = json.loads(raw.decode("utf-8"))
-        rows = document.get("messages", []) if isinstance(document, dict) else document
+    try:
+        if member.lower().endswith(".csv"):
+            rows = list(csv.DictReader(io.StringIO(raw.decode("utf-8-sig"))))
+        elif member.lower().endswith((".jsonl", ".ndjson")):
+            rows = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
+        else:
+            document = json.loads(raw.decode("utf-8"))
+            rows = document.get("messages", []) if isinstance(document, dict) else document
+    except (UnicodeDecodeError, json.JSONDecodeError, csv.Error) as exc:
+        raise ArchiveParseError("消息文件不是有效的 UTF-8、JSON 或 CSV") from exc
     if not isinstance(rows, list):
         raise ArchiveParseError("消息文件必须是数组，或包含 messages 数组字段")
     return [_normalize_row(row, index) for index, row in enumerate(rows, start=1)]

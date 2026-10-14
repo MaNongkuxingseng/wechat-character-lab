@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChatTimeline } from "./components/ChatTimeline";
+import { ImportWorkbench } from "./components/ImportWorkbench";
 import { ProfileWorkbench } from "./components/ProfileWorkbench";
 import { RoleBadge } from "./components/RoleBadge";
 import { TopicPanel } from "./components/TopicPanel";
@@ -47,10 +48,10 @@ export default function App() {
 
           <div className="sidebar-divider" />
           <div className="sidebar-label">素材来源</div>
-          <button className="source-row" type="button" disabled title="WeChatBridge 导入将在后续阶段实现">
+          <button className="source-row" type="button" onClick={() => document.getElementById("import-heading")?.scrollIntoView({ behavior: "smooth" })}>
             <span className="source-icon">＋</span>
-            <span>连接 WeChatBridge</span>
-            <span className="coming-soon">未连接</span>
+            <span>导入聊天记录</span>
+            <span className="coming-soon">ZIP</span>
           </button>
 
           <div className="sidebar-note">
@@ -94,6 +95,7 @@ export default function App() {
               </section>
             </aside>
           </div>
+          <ImportWorkbench roles={roles} connected={connected} />
           <ProfileWorkbench roles={roles} connected={connected} />
           <footer className="page-footer"><span>WECHAT CHARACTER LAB</span><span>个人本地工作区</span></footer>
         </section>

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -17,6 +19,32 @@ class ImportScanResponse(BaseModel):
 
     discovered: int
     sources: list[ImportSourceRead]
+
+
+class ImportPreviewMessage(BaseModel):
+    """用于人工核对的有限消息摘录，不作为画像分析输入。"""
+
+    speaker_label: str
+    text: str
+    sent_at: datetime | None = None
+
+
+class ImportPreviewRead(BaseModel):
+    """归档中的发言人统计和少量样本预览。"""
+
+    source: ImportSourceRead
+    speakers: dict[str, int] = Field(default_factory=dict)
+    samples: list[ImportPreviewMessage] = Field(default_factory=list)
+
+
+class ImportSourceSummary(BaseModel):
+    """当前版本支持的导入来源类型。"""
+
+    inbox_enabled: bool = True
+    bridge_api_enabled: bool = False
+    bridge_api_status: str = "not_connected"
+    upload_max_bytes: int
+    accepted_extensions: list[str] = Field(default_factory=lambda: [".zip"])
 
 
 class ImportApprovalResponse(BaseModel):

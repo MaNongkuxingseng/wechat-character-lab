@@ -155,7 +155,7 @@ export function ProfileWorkbench({ roles, connected }: ProfileWorkbenchProps) {
     <section className="profile-workbench" aria-labelledby="profile-heading">
       <div className="profile-header">
         <div className="section-heading section-heading--compact">
-          <span className="section-index">05</span>
+          <span className="section-index">06</span>
           <div>
             <h2 id="profile-heading">角色画像与证据</h2>
             <p>{selectedRole?.label ?? "选择角色"} · 逐项审核后才会发布</p>

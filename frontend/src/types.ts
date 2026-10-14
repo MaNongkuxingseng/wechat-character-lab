@@ -52,6 +52,25 @@ export interface ProfileVersion extends ProfileVersionSummary {
   traits: ProfileTrait[];
 }
 
+export interface ImportSource {
+  id: string;
+  name: string;
+  kind: string;
+  status: "pending_review" | "approved" | "parse_error";
+  message_count: number;
+  error: string | null;
+}
+
+export interface ImportPreview {
+  source: ImportSource;
+  speakers: Record<string, number>;
+  samples: Array<{
+    speaker_label: string;
+    text: string;
+    sent_at: string | null;
+  }>;
+}
+
 export type ServerEvent =
   | { type: "connection.ready"; session_id: string; seq: number }
   | { type: "connection.pong"; request_id?: string | null; seq: number }

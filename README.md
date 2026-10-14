@@ -47,20 +47,20 @@ pnpm typecheck
 pnpm build
 ```
 
-## 第二阶段导入流程
+## 聊天记录导入与处理
 
-将 WeChatBridge 导出的 ZIP 文件放入 `data/inbox/`，归档内应包含以下任一文件：
-`messages.json`、`messages.jsonl`、`messages.ndjson` 或 `messages.csv`。消息至少需要
-`speaker`（或 `speaker_label`）和 `text` 字段，可选 `id`、`sent_at`。
+打开前端“聊天记录导入与处理”，上传微信侧导出的 ZIP 包。归档内需包含
+`messages.json`、`messages.jsonl`、`messages.ndjson` 或 `messages.csv`。上传只会在本机
+`data/inbox/` 保存原始归档并创建待审核来源；检查发言人和样例后，将发言人映射到角色 A/B，
+再确认导入。未映射的消息不参与角色画像分析。上传限制为 50 MiB，解析后的消息文件限制为
+100 MiB。详细字段和示例见 [docs/import-format.md](docs/import-format.md)。
 
-```powershell
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/imports/inbox/scan
-Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/imports
-Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/imports/{source_id}/approve
-```
+对应接口：`POST /api/imports/upload`（multipart ZIP 上传）、`GET /api/imports`（来源列表）、
+`GET /api/imports/{source_id}/preview`（有限样例预览）、`POST /api/imports/{source_id}/approve`
+（映射并确认导入）、`POST /api/imports/inbox/scan`（扫描手动放入 Inbox 的 ZIP）。
 
-扫描只创建 `pending_review` 来源，不会自动写入消息或记忆；审核接口支持传入
-`{"speaker_mapping":{"我":"role_a","朋友":"role_b"}}`，未知归档格式、重复消息 ID、归档被替换或路径越界都会被拒绝。
+当前没有真实 WeChatBridge 私有 API 接入；ZIP 结构需符合本项目公开契约。来源重复检测、文件变更
+校验和审核后导入仍由后端执行。
 
 角色资料可通过 `PUT /api/roles/{role_id}` 更新，SQLite 是唯一主存储：
 
