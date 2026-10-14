@@ -18,9 +18,17 @@ def test_initial_migration_creates_schema_and_seed_roles(tmp_path, monkeypatch):
         engine = create_engine(database_url)
         try:
             inspector = inspect(engine)
-            assert {"roles", "sessions", "turns", "session_events", "sources", "memories"}.issubset(
-                set(inspector.get_table_names())
-            )
+            assert {
+                "roles",
+                "sessions",
+                "turns",
+                "session_events",
+                "sources",
+                "memories",
+                "profile_versions",
+                "profile_traits",
+                "profile_evidence",
+            }.issubset(set(inspector.get_table_names()))
             with engine.connect() as connection:
                 role_ids = {row[0] for row in connection.exec_driver_sql("SELECT id FROM roles")}
             assert role_ids == {"role_a", "role_b"}

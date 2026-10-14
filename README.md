@@ -72,6 +72,23 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/imports/{source_id}/app
 }
 ```
 
+## 画像分析与审核（本地统计版）
+
+导入来源审核通过并完成说话人映射后，可为指定角色生成画像草稿：
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8000/api/roles/role_a/profiles/analyze
+Invoke-RestMethod -Method Get http://127.0.0.1:8000/api/roles/role_a/profiles
+```
+
+当前 local_observable_v1 只统计文字消息长度和问句比例，不做人格诊断，也不推断声音。
+每条观察包含来源消息引用、样本支撑度和审核状态；至少需要 3 条已审核且明确映射到
+该角色的消息。逐项调用
+POST /api/roles/{role_id}/profiles/{version_id}/traits/{trait_id}/review，
+请求示例为 {"status":"accepted","reviewer_note":"已核对证据"}；
+全部特征都处理后，再调用 POST /api/roles/{role_id}/profiles/{version_id}/publish 发布版本。
+重新分析会创建新草稿，不覆盖当前已发布画像。
+
 ## 模块边界
 
 - `core/` 管理编排契约和内部事件，不解析导入归档。
