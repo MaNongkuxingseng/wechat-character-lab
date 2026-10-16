@@ -9,16 +9,21 @@
 import argparse
 import hashlib
 import json
+import sys
 import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "backend"))
+from app.ingestion.wechat_normalizer import normalize_payload  # noqa: E402
+
 
 def convert(source: Path, destination: Path) -> dict[str, Any]:
     """转换单一会话，并在写出前检查完整性和唯一键。"""
-    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload = _read_json(source)
     chats = payload.get("chats")
     messages = payload.get("messages")
     if not isinstance(chats, list) or len(chats) != 1:
@@ -127,11 +132,33 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _read_json(source: Path) -> Any:
+    """Read UTF-8 JSON with or without a BOM."""
+    return json.loads(source.read_text(encoding="utf-8-sig"))
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="转换 wechatauto 单会话导出文件")
+    parser = argparse.ArgumentParser(description="转换或标准化 wechatauto 单会话导出文件")
     parser.add_argument("source", type=Path, help="wechatauto 导出的原始 JSON")
-    parser.add_argument("destination", type=Path, help="项目使用的 ZIP 输出路径")
+    parser.add_argument("destination", type=Path, help="输出 ZIP 或 JSONL 路径")
+    parser.add_argument("--format", choices=("zip", "jsonl"), default="zip")
     args = parser.parse_args()
+    if args.destination.exists():
+        raise SystemExit(f"拒绝覆盖已有输出文件：{args.destination}")
+    if args.format == "jsonl":
+        payload = _read_json(args.source)
+        source_file = (
+            args.source.relative_to(ROOT).as_posix()
+            if args.source.is_relative_to(ROOT)
+            else args.source.name
+        )
+        records, summary = normalize_payload(payload, source_file=source_file)
+        args.destination.parent.mkdir(parents=True, exist_ok=True)
+        with args.destination.open("w", encoding="utf-8", newline="\n") as output:
+            for record in records:
+                output.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+        print(json.dumps(summary, ensure_ascii=True))
+        return
     print(json.dumps(convert(args.source, args.destination), ensure_ascii=True))
 
 
