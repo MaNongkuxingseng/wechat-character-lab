@@ -59,9 +59,7 @@ class ProfileCandidateItem(Base):
 
     __tablename__ = "profile_candidate_items"
     __table_args__ = (
-        UniqueConstraint(
-            "snapshot_id", "profile_item_id", name="uq_candidate_item_snapshot_item"
-        ),
+        UniqueConstraint("snapshot_id", "profile_item_id", name="uq_candidate_item_snapshot_item"),
         UniqueConstraint(
             "snapshot_id", "candidate_fingerprint", name="uq_candidate_item_fingerprint"
         ),
@@ -73,6 +71,14 @@ class ProfileCandidateItem(Base):
             "review_status IN ('pending', 'accepted', 'rejected', 'needs_review')",
             name="ck_candidate_item_review_status",
         ),
+        CheckConstraint(
+            "cognitive_state IN ('evidence_backed', 'model_inferred', 'unknown')",
+            name="ck_candidate_item_cognitive_state",
+        ),
+        CheckConstraint(
+            "conflict_status IN ('none', 'conflict', 'unresolved')",
+            name="ck_candidate_item_conflict_status",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -82,12 +88,13 @@ class ProfileCandidateItem(Base):
         index=True,
     )
     profile_item_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    subject_id: Mapped[str] = mapped_column(
-        ForeignKey("roles.id"), nullable=False, index=True
-    )
+    subject_id: Mapped[str] = mapped_column(ForeignKey("roles.id"), nullable=False, index=True)
     category: Mapped[str] = mapped_column(String(40), nullable=False)
     claim: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cognitive_state: Mapped[str] = mapped_column(String(24), nullable=False, default="unknown")
+    inference_basis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conflict_status: Mapped[str] = mapped_column(String(24), nullable=False, default="none")
     observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -131,13 +138,28 @@ class ProfileCandidateEvidence(Base):
     source_dataset_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     source_message_id: Mapped[str] = mapped_column(String(255), nullable=False)
     imported_message_id: Mapped[str | None] = mapped_column(
-        ForeignKey("imported_messages.id", ondelete="SET NULL"), nullable=True, index=True
+        ForeignKey("imported_messages.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     quote_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rationale: Mapped[str] = mapped_column(String(500), nullable=False)
     match_status: Mapped[str] = mapped_column(String(16), nullable=False, default="unmatched")
     invalid_reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
     matched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProfileCandidateUnmatchedEvidence(Base):
+    """Rejected or unmatched analyzer evidence retained without chat text."""
+
+    __tablename__ = "profile_candidate_unmatched_evidence"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("profile_candidate_snapshots.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    signal_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    evidence_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str] = mapped_column(String(120), nullable=False)
 
 
 class ProfileCandidateReviewEvent(Base):

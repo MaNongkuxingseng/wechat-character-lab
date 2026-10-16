@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import events, health, imports, profiles, roles, sessions, voice
+from app.api import candidates, events, health, imports, profiles, roles, sessions, voice
 from app.config import get_settings
 
 app = FastAPI(title=get_settings().app_name, version="0.1.0")
@@ -24,3 +24,4 @@ app.include_router(events.router)
 app.include_router(voice.router)
 app.include_router(imports.router)
 app.include_router(profiles.router)
+app.include_router(candidates.router)

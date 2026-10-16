@@ -40,6 +40,7 @@ def seed_profile_messages(factory: sessionmaker[Session]) -> None:
             imported_at=now,
         )
         db.add_all([approved, pending])
+        db.flush()
         rows = [
             ("a-1", "role_a", "今天忙吗？"),
             ("a-2", "role_a", "还好，刚下班。"),

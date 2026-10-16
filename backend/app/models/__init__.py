@@ -4,6 +4,7 @@ from app.models.candidates import (
     ProfileCandidateItem,
     ProfileCandidateReviewEvent,
     ProfileCandidateSnapshot,
+    ProfileCandidateUnmatchedEvidence,
 )
 from app.models.imports import ImportedMessage, Source
 from app.models.memory import Memory
@@ -18,6 +19,7 @@ __all__ = [
     "ProfileCandidateItem",
     "ProfileCandidateReviewEvent",
     "ProfileCandidateSnapshot",
+    "ProfileCandidateUnmatchedEvidence",
     "ConversationSession",
     "ImportedMessage",
     "Memory",
