@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
@@ -13,7 +15,9 @@ def test_initial_migration_creates_schema_and_seed_roles(tmp_path, monkeypatch):
 
     get_settings.cache_clear()
     try:
-        config = Config("alembic.ini")
+        backend_dir = Path(__file__).resolve().parents[1]
+        config = Config(str(backend_dir / "alembic.ini"))
+        config.set_main_option("script_location", str(backend_dir / "alembic"))
         command.upgrade(config, "head")
         engine = create_engine(database_url)
         try:

@@ -15,6 +15,15 @@ from app.schemas.message import NormalizedMessage
 from app.schemas.role import RoleProfile
 from app.schemas.session import SessionCreate
 
+TOPIC_EXPRESSIONS = {
+    "reconciliation": ("复合", "恢复关系", "重新在一起", "和好", "修复关系"),
+}
+
+
+def _matches_topic_expression(response: str, topic_key: str) -> bool:
+    """测试关键词覆盖，不将关键词命中解释为完整语义理解。"""
+    return any(expression in response for expression in TOPIC_EXPRESSIONS[topic_key])
+
 
 def test_session_schema_requires_two_distinct_roles():
     with pytest.raises(ValidationError):
@@ -31,19 +40,28 @@ def test_mock_agents_keep_director_and_role_output_separate():
         consent_status="preset",
     )
 
+    topic = "请求复合"
     response = asyncio.run(
         MockRoleAgent().respond(
             role,
-            "主题：请求复合\n导演意图：open\n画像：消息长度中位数 10 字；问句比例 4%\n最近对话：",
+            f"主题：{topic}\n导演意图：open\n画像：消息长度中位数 10 字；问句比例 4%\n最近对话：",
         )
     )
-    assert "复合" in response
+    assert response
+    assert "复合" not in response
+    assert _matches_topic_expression(response, "reconciliation")
     assert "消息长度中位数" not in response
     assert "Mock" in response
     plan = asyncio.run(MockDirectorAgent().plan_next("主题", 0, ["role_a", "role_b"]))
     assert plan["speaker_role_id"] == "role_a"
     assert plan["intent"] == "open"
     assert "text" not in plan
+
+
+def test_topic_expression_check_rejects_an_off_topic_reply():
+    off_topic_response = "明天一起讨论天气和菜单。"
+
+    assert not _matches_topic_expression(off_topic_response, "reconciliation")
 
 
 def test_mock_role_agent_responds_to_user_context_and_role_difference():

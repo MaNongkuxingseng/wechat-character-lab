@@ -10,7 +10,7 @@ ROLE_MAP = {"self": "role_a", "friend": "role_b"}
 
 
 def _messages() -> list[dict[str, object]]:
-    return [
+    messages = [
         {
             "message_id": "syn-001",
             "sender": "friend",
@@ -102,6 +102,10 @@ def _messages() -> list[dict[str, object]]:
             "timestamp": "2026-01-08T10:00:00Z",
             "timestamp_status": "parsed_utc",
         },
+    ]
+    return [
+        {"is_ai_generated": False, "is_system": False, **message}
+        for message in messages
     ]
 
 
@@ -244,3 +248,152 @@ def test_adapter_logs_only_counts_and_no_message_content(caplog):
     assert "synthetic profile adaptation complete" in output
     assert "我喜欢清淡的茶" not in output
     assert "syn-001" not in output
+
+
+def _basic_signal(**overrides: object) -> dict[str, object]:
+    signal: dict[str, object] = {
+        "signal_id": "invalid-input",
+        "subject_id": "role_b",
+        "category": "preference",
+        "claim": "invalid input must be rejected",
+    }
+    signal.update(overrides)
+    return signal
+
+
+def _message_copy(message_id: str) -> dict[str, object]:
+    return next(message.copy() for message in _messages() if message["message_id"] == message_id)
+
+
+def test_adapter_rejects_missing_empty_invalid_partial_and_duplicate_evidence():
+    cases = [
+        (_basic_signal(), "evidence_field_missing"),
+        (_basic_signal(evidence_ids=[]), "evidence_field_empty_or_invalid"),
+        (_basic_signal(evidence_ids="syn-001"), "evidence_field_empty_or_invalid"),
+        (_basic_signal(evidence_ids=["syn-001", 7]), "invalid_evidence_reference"),
+        (_basic_signal(evidence_ids=["syn-001", "syn-001"]), "duplicate_evidence_reference"),
+    ]
+
+    for signal, expected_reason in cases:
+        result = adapt_synthetic_signals(_messages(), [signal], sender_role_map=ROLE_MAP)
+        assert result.candidates == ()
+        assert any(item.reason == expected_reason for item in result.unmatched_evidence)
+
+
+def test_adapter_requires_strict_temporal_status_and_timezone_for_both_polarities():
+    missing_status = _message_copy("syn-003")
+    missing_status.pop("timestamp_status")
+    naive_timestamp = _message_copy("syn-004")
+    naive_timestamp["timestamp"] = "2026-02-01T10:00:00"
+    invalid_counter = _message_copy("syn-002")
+    invalid_counter["timestamp_status"] = "invalid"
+
+    cases = (
+        ("syn-003", missing_status, _basic_signal(evidence_ids=["syn-003"])),
+        ("syn-004", naive_timestamp, _basic_signal(evidence_ids=["syn-004"])),
+        (
+            "syn-002",
+            invalid_counter,
+            _basic_signal(
+                evidence_ids=["syn-004"],
+                counter_evidence_ids=["syn-002"],
+            ),
+        ),
+    )
+    for message_id, replacement, signal in cases:
+        signal = {**signal, "requires_temporal": True}
+        messages = [message for message in _messages() if message["message_id"] != message_id]
+        messages.append(replacement)
+        result = adapt_synthetic_signals(messages, [signal], sender_role_map=ROLE_MAP)
+        assert result.candidates == ()
+        assert any(item.reason == "invalid_timestamp" for item in result.unmatched_evidence)
+
+
+def test_adapter_rejects_missing_and_non_boolean_security_flags():
+    missing = _message_copy("syn-001")
+    missing.pop("is_system")
+    string_flag = _message_copy("syn-001")
+    string_flag["is_ai_generated"] = "true"
+    numeric_flag = _message_copy("syn-001")
+    numeric_flag["is_system"] = 0
+    metadata_flag = _message_copy("syn-001")
+    metadata_flag["source_metadata"] = {"is_system": "false"}
+
+    for message, expected_reason in (
+        (missing, "security_flag_missing"),
+        (string_flag, "invalid_security_flag"),
+        (numeric_flag, "invalid_security_flag"),
+        (metadata_flag, "invalid_security_flag"),
+    ):
+        result = adapt_synthetic_signals(
+            [message],
+            [_basic_signal(evidence_ids=["syn-001"])],
+            sender_role_map=ROLE_MAP,
+        )
+        assert result.candidates == ()
+        assert any(item.reason == expected_reason for item in result.unmatched_evidence)
+
+
+def test_synthetic_end_to_end_keeps_auditable_candidates_and_rejections():
+    """验证合成消息到候选/拒绝清单的完整可审计链路。"""
+    messages = _messages()
+    base_signals = _signals()
+    extra_signals = [
+        _basic_signal(
+            signal_id="unmapped-role",
+            subject_id="role_unknown",
+            evidence_ids=["syn-001"],
+        ),
+        _basic_signal(
+            signal_id="cross-polarity-duplicate",
+            evidence_ids=["syn-001"],
+            counter_evidence_ids=["syn-001"],
+        ),
+    ]
+    signals = [*base_signals, *extra_signals]
+
+    result = adapt_synthetic_signals(
+        messages,
+        signals,
+        sender_role_map=ROLE_MAP,
+        updated_at="2026-02-02T00:00:00Z",
+    )
+    unique_messages = {
+        message["message_id"]: message
+        for message in messages
+        if sum(item["message_id"] == message["message_id"] for item in messages) == 1
+    }
+
+    assert result.candidates
+    assert all(candidate.evidence_refs for candidate in result.candidates)
+    for candidate in result.candidates:
+        assert all(ref in unique_messages for ref in candidate.evidence_refs)
+        assert all(ref in unique_messages for ref in candidate.counter_evidence_refs)
+        assert all(
+            ROLE_MAP[unique_messages[ref]["sender"]] == candidate.subject_id
+            for ref in (*candidate.evidence_refs, *candidate.counter_evidence_refs)
+        )
+
+    rejection_pairs = {
+        (item.signal_id, item.reason) for item in result.unmatched_evidence
+    }
+    assert ("unmapped-role", "role_mismatch") in rejection_pairs
+    assert ("cross-polarity-duplicate", "duplicate_evidence_reference") in rejection_pairs
+    assert {item.signal_id for item in result.unmatched_evidence} >= {
+        "media",
+        "ai",
+        "bad-time",
+        "duplicate",
+        "missing",
+        "bad-quote",
+    }
+
+    reordered_messages = list(reversed(messages))
+    reordered_signals = [dict(reversed(list(signal.items()))) for signal in signals]
+    repeated = adapt_synthetic_signals(
+        reordered_messages,
+        reordered_signals,
+        sender_role_map=dict(reversed(list(ROLE_MAP.items()))),
+        updated_at="2026-02-02T00:00:00Z",
+    )
+    assert result.to_dict() == repeated.to_dict()

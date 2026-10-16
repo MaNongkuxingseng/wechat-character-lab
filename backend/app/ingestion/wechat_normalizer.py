@@ -8,8 +8,11 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
+
+from app.ingestion.security_flags import derive_security_flags
 
 TYPE_NAMES = {
     1: "text",
@@ -98,6 +101,15 @@ def _normalize_message(
         content = None
         content_status = "not_text"
 
+    security_metadata = (
+        dict(message["source_metadata"])
+        if isinstance(message.get("source_metadata"), Mapping)
+        else {}
+    )
+    security_metadata.update(type=message.get("type"), message_type=message_type)
+    security_flags = derive_security_flags(
+        {**message, "message_type": message_type, "source_metadata": security_metadata}
+    )
     record = {
         "message_id": base_id,
         "message_id_status": id_status,
@@ -112,6 +124,9 @@ def _normalize_message(
         "source_type_code": type_code,
         "content": content,
         "content_status": content_status,
+        "is_ai_generated": security_flags.is_ai_generated,
+        "is_system": security_flags.is_system,
+        "security_flag_sources": security_flags.source_map(),
         "source_file": source_file,
         "source_message_ref": f"messages[{row_number}]",
         "source_metadata": {

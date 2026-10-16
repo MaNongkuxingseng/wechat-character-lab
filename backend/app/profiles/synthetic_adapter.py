@@ -105,11 +105,25 @@ def adapt_synthetic_signals(
             )
             continue
 
-        evidence_ids = _string_tuple(signal.get("evidence_ids"))
-        counter_ids = _string_tuple(signal.get("counter_evidence_ids"))
+        signal_errors: list[UnmatchedEvidence] = []
+        evidence_ids = _validated_reference_ids(
+            signal, "evidence_ids", signal_id, signal_errors
+        )
+        counter_ids = _validated_reference_ids(
+            signal, "counter_evidence_ids", signal_id, signal_errors, required=False
+        )
+        overlap = set(evidence_ids) & set(counter_ids)
+        if overlap:
+            signal_errors.append(
+                UnmatchedEvidence(
+                    signal_id,
+                    min(overlap),
+                    "duplicate_evidence_reference",
+                    kind="evidence",
+                )
+            )
         evidence_quotes = _quote_map(signal.get("evidence_quotes"))
         counter_quotes = _quote_map(signal.get("counter_evidence_quotes"))
-        signal_errors: list[UnmatchedEvidence] = []
         evidence_messages = _resolve_evidence(
             signal_id,
             evidence_ids,
@@ -203,7 +217,7 @@ def _resolve_evidence(
             )
             continue
         message = matches[0]
-        if not _is_eligible_text(message):
+        if not _is_eligible_text(message, errors, signal_id, evidence_id, kind):
             errors.append(
                 UnmatchedEvidence(signal_id, evidence_id, "message_not_eligible", kind=kind)
             )
@@ -220,29 +234,60 @@ def _resolve_evidence(
     return resolved
 
 
-def _is_eligible_text(message: Mapping[str, Any]) -> bool:
-    message_type = str(message.get("message_type") or "").lower()
+def _is_eligible_text(
+    message: Mapping[str, Any],
+    errors: list[UnmatchedEvidence],
+    signal_id: str,
+    evidence_id: str,
+    kind: str,
+) -> bool:
+    for field in ("is_ai_generated", "is_system"):
+        if field not in message:
+            errors.append(
+                UnmatchedEvidence(signal_id, evidence_id, "security_flag_missing", kind=kind)
+            )
+            return False
+        if not isinstance(message[field], bool):
+            errors.append(
+                UnmatchedEvidence(signal_id, evidence_id, "invalid_security_flag", kind=kind)
+            )
+            return False
+
+    metadata = message.get("source_metadata")
+    if isinstance(metadata, Mapping):
+        for field in ("is_ai_generated", "is_system"):
+            if field in metadata and not isinstance(metadata[field], bool):
+                errors.append(
+                    UnmatchedEvidence(signal_id, evidence_id, "invalid_security_flag", kind=kind)
+                )
+                return False
+            if metadata.get(field) is True:
+                return False
+
+    message_type = message.get("message_type")
+    if not isinstance(message_type, str):
+        return False
+    message_type = message_type.lower()
     if message_type not in _TEXT_MESSAGE_TYPES or message_type in _EXCLUDED_MESSAGE_TYPES:
         return False
     if message.get("content_status") != "present" or not isinstance(message.get("content"), str):
         return False
-    metadata = message.get("source_metadata")
-    if isinstance(metadata, Mapping) and (
-        metadata.get("is_ai_generated") is True or metadata.get("is_system") is True
-    ):
+    if message["is_ai_generated"] or message["is_system"]:
         return False
-    return message.get("is_ai_generated") is not True and message.get("is_system") is not True
+    return True
 
 
 def _timestamp(message: Mapping[str, Any]) -> str | None:
-    if message.get("timestamp_status") not in (None, "parsed_utc"):
+    if message.get("timestamp_status") != "parsed_utc":
         return None
     raw = message.get("timestamp")
     if not isinstance(raw, str):
         return None
     try:
-        datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
         return None
     return raw
 
@@ -251,10 +296,31 @@ def _requires_temporal(signal: Mapping[str, Any]) -> bool:
     return signal.get("requires_temporal") is True
 
 
-def _string_tuple(value: Any) -> tuple[str, ...]:
-    if not isinstance(value, (list, tuple)):
+def _validated_reference_ids(
+    signal: Mapping[str, Any],
+    field: str,
+    signal_id: str,
+    errors: list[UnmatchedEvidence],
+    *,
+    required: bool = True,
+) -> tuple[str, ...]:
+    """严格解析证据 ID，拒绝缺失、空值、非法类型和重复引用。"""
+    if field not in signal:
+        if required:
+            errors.append(UnmatchedEvidence(signal_id, "", "evidence_field_missing"))
         return ()
-    return tuple(item for item in value if isinstance(item, str) and item)
+    value = signal[field]
+    if not isinstance(value, (list, tuple)) or not value:
+        errors.append(UnmatchedEvidence(signal_id, "", "evidence_field_empty_or_invalid"))
+        return ()
+    if any(not isinstance(item, str) or not item.strip() for item in value):
+        errors.append(UnmatchedEvidence(signal_id, "", "invalid_evidence_reference"))
+        return ()
+    refs = tuple(item.strip() for item in value)
+    if len(set(refs)) != len(refs):
+        errors.append(UnmatchedEvidence(signal_id, refs[0], "duplicate_evidence_reference"))
+        return ()
+    return refs
 
 
 def _quote_map(value: Any) -> dict[str, str]:
