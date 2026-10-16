@@ -1,5 +1,21 @@
 # 现状发现与关键决策
 
+## 本轮附件审计：已确认事实（2026-10-15）
+
+- 原始导出共 37,769 条，含 78 条 type_code=43 视频；data 无视频文件不等于聊天无视频。现有转换器未保留视频附件路径，需从本地媒体层提取并关联消息。
+- 当前生成直接调用 MockRoleAgent 固定模板；LLMProvider/MemoryRetriever 只是协议或 Mock，没有真实模型、检索实现。统计不是可运行角色设定。
+- 当前画像只取按时间排序的前 1,000 条目标角色文字，缺少跨时间抽样、语境、反例、聚合和风格留出评测；已批准统计版本不能据此视为角色复现通过。
+- 本轮实际查询 PyPI：pilk 0.2.4 同时有 cp310/cp311 win_amd64 wheel，没有 cp314；独立 3.11 环境是有具体发行依据的候选，尚未安装/验证。
+
+## 2026-10-15：终端恢复、Mock 与媒体处理
+
+- 当前 Node 执行入口可调用 PowerShell 并读取文件；此前“工具完全不可用”的判断已纠正。Get-Location 实际返回项目目录；Git 安装于 D:/Program Files/Git，完整路径 status --short 起始输出为空。
+- 项目根目录及上级无 AGENTS.md，C:/Users/Administrator/.codex/AGENTS.md 为空；未创建子代理，既有代码和本地素材保留。
+- 对话根因：450ms 自动循环缺少可用插话窗口；接收循环等待 Provider 生成时无法取消；轮换计数混入用户 Turn；终态事件仍 ACK 但不处理。现已增加等待、pause/resume、后台 generation 取消和状态校验。
+- 媒体根因：PyAV 分支依赖未安装的 numpy，且错误地将 float/planar 样本统一除以 32768。现经 AudioResampler 统一成 mono s16/16kHz WAV，再计算真实声学摘要。ffmpeg 回退不依赖 ffprobe。
+- 视频派生 WAV 使用源 SHA-256 命名并记录源路径、工具与版本；视频不自动映射角色。本机 data 仅 15 个文件，没有视频候选。
+- SILK 安装检查：pilk 无 cp314 wheel；源码编译报 Microsoft Visual C++ 14.0+ 缺失。本轮不安装系统编译器、不伪造解码/ASR。
+
 ## 仓库现状
 
 - 当前 `main` 包含初始工程骨架与角色资料/Inbox 导入审核阶段；当前工作区干净。
@@ -79,3 +95,9 @@
 - 页面能够展示已完成的“请求复合”会话，A/B 角色按奇偶轮次交替，状态为 `completed`；角色回复带有各自已审核画像的统计上下文。
 - 当前页面默认自动轮次很快完成 12 轮，需在新会话创建后立即插话，才能验证 `user.message` 是否能打断或插入自动流程。
 - 语音区域可见 5 段 SILK 与总大小 101,164 bytes，当前仍属于容器校验通过但未解码；TTS 明确未配置，不能宣称浏览器已有真实播放。
+
+## 2026-10-16 P2-A 工具定位（未执行真实分析）
+
+- 在项目代码、文档和 `C:/Users/Administrator/.codex/skills`、`C:/Users/Administrator/.agents/skills` 中未发现 `Chat2Profile` 或 `ChatAnalysis.SKILL` 的本地源码、`SKILL.md` 或可执行入口。
+- 既有 `reports/preflight.md` 记录的候选公开来源为 `shuweiran/chat2profile` 与 `JularDepick/ChatAnalysis.SKILL`；本轮尚未读取其远程内容，版本、许可证实际条款和依赖均待公开仓库核验。
+- 本阶段不读取 `data/`，不运行消息提取、ASR、TTS 或画像任务；任何 README 能力描述在源码核验前均标记为未验证。

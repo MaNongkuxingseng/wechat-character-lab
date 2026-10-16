@@ -1,5 +1,15 @@
 # 开发进度记录
 
+## 2026-10-15：恢复执行与修复验收
+
+- 实际执行 Get-Location 与 git status --short：PowerShell 可用；Git 因 PATH 缺失改用 D:/Program Files/Git/cmd/git.exe，初始工作区干净。三份计划文件已读取；项目/上级无 AGENTS.md，全局文件为空。
+- Mock 会话：默认 4 秒轮间窗口（UI 2/4/8 秒），支持 pause/resume；后台生成可取消，暂停可插话；终态明确拒绝操作；用户 Turn 不影响 A/B 轮换；Mock 回复回显最近插话。
+- 媒体：视频和压缩音频统一提取 PCM WAV，修正 PyAV 数值格式错误及 numpy 缺失；保存派生文件路径与 tool_version；前端刷新后加载已有分析并展示失败原因。
+- 浏览器实测 5174/8001：创建→暂停→插话→继续→停止通过。SQLite 会话 0392f8aa-3e42-4b72-ac18-59698fbb6ad4 共 10 条 Turn（9 角色+1 用户），28 个事件的序号均唯一；状态包含 paused/running/stopping/completed，2 次 cancellation。
+- 语音实测：现有 5 个 SILK 共 101,164 bytes，仍为 validated_pending_decode；A/B 解码样本 0/0。data 无真实视频；合成 MP4/M4A 的 PyAV/ffmpeg 提取、时长、RMS 和落盘测试通过。
+- SILK blocker：pilk 无 Python 3.14 wheel，源码编译又缺少 Microsoft C++ Build Tools；无真实 ASR/TTS，本轮没有外发聊天或音频。
+- 验证：后端 37 项测试、Ruff、前端 typecheck/build、git diff --check 通过（保留依赖 deprecation warning）。本机更新版服务运行于 8001/5174；未 commit/push、未创建子代理。
+
 ## 2026-10-14：系统重点复盘
 
 - 状态：已完成复盘与路线重排，代码尚未开始角色画像分析阶段。
