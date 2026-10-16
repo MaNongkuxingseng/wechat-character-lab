@@ -3,9 +3,11 @@ interface TopicPanelProps {
   onTopicChange: (value: string) => void;
   onStart: () => void;
   disabled: boolean;
+  turnDelay: number;
+  onTurnDelayChange: (value: number) => void;
 }
 
-export function TopicPanel({ topic, onTopicChange, onStart, disabled }: TopicPanelProps) {
+export function TopicPanel({ topic, onTopicChange, onStart, disabled, turnDelay, onTurnDelayChange }: TopicPanelProps) {
   return (
     <section className="topic-panel" aria-labelledby="topic-heading">
       <div className="section-heading">
@@ -25,7 +27,11 @@ export function TopicPanel({ topic, onTopicChange, onStart, disabled }: TopicPan
         rows={3}
       />
       <div className="topic-actions">
-        <span className="field-hint">最多 500 字</span>
+        <label className="field-hint">轮间等待
+          <select aria-label="轮间等待" value={turnDelay} onChange={(event) => onTurnDelayChange(Number(event.target.value))} disabled={disabled}>
+            <option value={2}>2 秒</option><option value={4}>4 秒</option><option value={8}>8 秒</option>
+          </select>
+        </label>
         <button className="primary-button" type="button" onClick={onStart} disabled={disabled || !topic.trim()}>
           创建会话
           <span aria-hidden="true">→</span>

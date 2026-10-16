@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agents.mock_agents import MockDirectorAgent, MockRoleAgent
@@ -17,7 +17,7 @@ from app.models import ConversationSession, ProfileTrait, ProfileVersion, Role, 
 from app.schemas.role import RoleProfile
 from app.schemas.session import SessionRead
 
-from .state_machine import SessionState
+from .state_machine import SessionState, can_transition
 
 
 class ConversationOrchestrator:
@@ -59,6 +59,8 @@ class ConversationOrchestrator:
 
     def set_state(self, state: SessionState) -> dict[str, object]:
         session = self.session()
+        if not can_transition(session.status, state):
+            raise ValueError(f"不允许的会话状态转换：{session.status} -> {state.value}")
         session.status = state.value
         if state is SessionState.RUNNING and session.started_at is None:
             session.started_at = datetime.now(UTC)
@@ -70,10 +72,19 @@ class ConversationOrchestrator:
     async def create_role_turn(self) -> list[dict[str, object]]:
         """生成下一条 A/B 回复；达到轮次上限时只发结束状态。"""
         session = self.session()
-        if session.status in {SessionState.COMPLETED.value, SessionState.STOPPING.value}:
+        if session.status != SessionState.RUNNING.value:
             return []
         role_ids = list(session.settings.get("role_ids", ["role_a", "role_b"]))
-        plan = await self.director.plan_next(session.topic, session.turn_count, role_ids)
+        # 角色轮换（role rotation）只统计角色消息，用户插话不改变 A/B 顺序。
+        role_turn_count = (
+            self.db.scalar(
+                select(func.count(Turn.id)).where(
+                    Turn.session_id == self.session_id, Turn.speaker_role_id.is_not(None)
+                )
+            )
+            or 0
+        )
+        plan = await self.director.plan_next(session.topic, role_turn_count, role_ids)
         if bool(plan.get("should_end")) or session.turn_count >= session.turn_limit:
             return [self.set_state(SessionState.COMPLETED)]
 
@@ -106,6 +117,7 @@ class ConversationOrchestrator:
             session.topic,
             list(reversed(previous)),
             [trait.description for trait in approved_traits],
+            intent=str(plan.get("intent") or "respond"),
         )
         text = await self.role_agent.respond(role_profile, context)
         sequence = session.turn_count + 1
@@ -131,14 +143,23 @@ class ConversationOrchestrator:
             "text": text,
             "interrupted": False,
         }
-        return [
+        outputs = [
             self.record_event("turn.created", payload),
             self.record_event("message.created", payload),
         ]
+        if session.turn_count >= session.turn_limit:
+            outputs.append(self.set_state(SessionState.COMPLETED))
+        return outputs
 
     def add_user_turn(self, text: str) -> list[dict[str, object]]:
         """保存用户插话，并将其作为下一轮 Agent 的上下文。"""
         session = self.session()
+        if session.status not in {SessionState.RUNNING.value, SessionState.PAUSED.value}:
+            raise ValueError("当前会话不可插话")
+        if not text.strip():
+            raise ValueError("插话不能为空")
+        if session.turn_count >= session.turn_limit:
+            raise ValueError("会话已达到轮次上限")
         sequence = session.turn_count + 1
         turn = Turn(
             id=str(uuid4()),
@@ -151,7 +172,6 @@ class ConversationOrchestrator:
             created_at=datetime.now(UTC),
         )
         session.turn_count = sequence
-        session.status = SessionState.RUNNING.value
         self.db.add(turn)
         self.db.commit()
         payload = {
@@ -162,10 +182,13 @@ class ConversationOrchestrator:
             "text": text.strip(),
             "interrupted": False,
         }
-        return [
+        outputs = [
             self.record_event("turn.created", payload),
             self.record_event("message.created", payload),
         ]
+        if session.turn_count >= session.turn_limit:
+            outputs.append(self.set_state(SessionState.COMPLETED))
+        return outputs
 
     def stop(self) -> list[dict[str, object]]:
         """停止后续自动轮次；已完成消息不会被删除。"""
@@ -177,10 +200,12 @@ class ConversationOrchestrator:
         return [self.record_event("session.state", {"status": session.status})]
 
     @staticmethod
-    def _context(topic: str, turns: list[Turn], traits: list[str]) -> str:
+    def _context(topic: str, turns: list[Turn], traits: list[str], *, intent: str) -> str:
         transcript = "\n".join(f"{turn.speaker_role_id or 'user'}: {turn.text}" for turn in turns)
         profile = "；".join(traits) or "暂无已审核画像特征"
-        return f"主题：{topic}\n画像：{profile}\n最近对话：\n{transcript}".strip()
+        return (
+            f"主题：{topic}\n导演意图：{intent}\n画像：{profile}\n最近对话：\n{transcript}"
+        ).strip()
 
 
 def session_read(session: ConversationSession) -> SessionRead:

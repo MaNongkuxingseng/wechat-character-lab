@@ -6,15 +6,17 @@ interface ChatTimelineProps {
   events: ServerEvent[];
   onSend: (text: string) => boolean;
   onStop: () => boolean;
+  onPauseOrResume: () => boolean;
 }
 
-export function ChatTimeline({ session, events, onSend, onStop }: ChatTimelineProps) {
+export function ChatTimeline({ session, events, onSend, onStop, onPauseOrResume }: ChatTimelineProps) {
   const [draft, setDraft] = useState("");
   const messages = useMemo(
     () => events.filter((event): event is Extract<ServerEvent, { type: "message.created" }> => event.type === "message.created"),
     [events],
   );
   const state = [...events].reverse().find((event) => event.type === "session.state");
+  const active = Boolean(session && ["running", "paused"].includes(session.status));
   const submit = () => {
     if (onSend(draft)) setDraft("");
   };
@@ -57,14 +59,16 @@ export function ChatTimeline({ session, events, onSend, onStop }: ChatTimelinePr
           <div className="message-compose">
             <input
               value={draft}
+              disabled={!active}
               onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") submit(); }}
-              placeholder="插话…"
+              onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) submit(); }}
+              placeholder={active ? "插话…" : "会话已结束，请新建主题会话"}
               maxLength={4000}
               aria-label="输入插话"
             />
-            <button type="button" className="icon-button" onClick={submit} disabled={!draft.trim()} title="发送插话" aria-label="发送插话">↑</button>
-            <button type="button" className="stop-button" onClick={onStop} title="停止自动对话">停止</button>
+            <button type="button" className="icon-button" onClick={submit} disabled={!active || !draft.trim()} title="发送插话" aria-label="发送插话">↑</button>
+            <button type="button" className="stop-button" onClick={onPauseOrResume} disabled={!active}>{session.status === "paused" ? "继续" : "暂停"}</button>
+            <button type="button" className="stop-button" onClick={onStop} disabled={!active} title="停止自动对话">停止</button>
           </div>
         ) : <span>创建主题会话后可开始文字对话</span>}
       </div>

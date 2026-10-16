@@ -56,3 +56,81 @@ def test_media_path_outside_data_root_is_rejected(tmp_path: Path):
     result = MediaAnalyzer(inside).analyze(outside)
 
     assert result.status == "rejected_outside_data_root"
+
+
+def test_video_audio_extracts_real_pcm_without_numpy(tmp_path: Path):
+    """以合成音频生成 MP4，验证 PyAV float 解码及可追溯派生 WAV。"""
+    import subprocess
+
+    import pytest
+
+    from app.voice.analyzer import _ffmpeg_tools
+
+    pytest.importorskip("av")
+    _, ffmpeg = _ffmpeg_tools()
+    if not ffmpeg:
+        pytest.skip("合成 MP4 需要 ffmpeg")
+    data = tmp_path / "data"
+    data.mkdir()
+    wav = data / "tone.wav"
+    _write_wav(wav)
+    video = data / "sample.mp4"
+    subprocess.run(
+        [ffmpeg, "-v", "error", "-y", "-i", str(wav), "-c:a", "aac", str(video)],
+        check=True,
+        capture_output=True,
+    )
+    result = MediaAnalyzer(data).analyze_video_audio(video)
+    assert result.status == "decoded", result.error
+    assert result.derived_from_video is True
+    assert result.source_path == "sample.mp4"
+    assert 450 <= result.duration_ms <= 700
+    assert result.sample_rate == 16000
+    assert -25 < result.rms_db < -8
+    assert result.silence_ratio < 0.4
+    assert result.metadata["tool_version"]
+    extracted = data / result.metadata["decoded_path"]
+    assert extracted.is_file()
+    assert MediaAnalyzer(data).analyze(extracted).duration_ms == result.duration_ms
+
+
+def test_compressed_audio_uses_ffmpeg_without_ffprobe(tmp_path: Path, monkeypatch):
+    """只有 bundled ffmpeg 时仍可提取，不强依赖 ffprobe/PyAV。"""
+    import subprocess
+    import sys
+
+    import pytest
+
+    from app.voice import analyzer as module
+
+    _, ffmpeg = module._ffmpeg_tools()
+    if not ffmpeg:
+        pytest.skip("需要 bundled ffmpeg")
+    data = tmp_path / "data"
+    data.mkdir()
+    wav = data / "tone.wav"
+    _write_wav(wav)
+    audio = data / "tone.m4a"
+    subprocess.run(
+        [ffmpeg, "-v", "error", "-y", "-i", str(wav), "-c:a", "aac", str(audio)],
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.setitem(sys.modules, "av", None)
+    monkeypatch.setattr(module, "_ffmpeg_tools", lambda: (None, ffmpeg))
+    result = MediaAnalyzer(data).analyze(audio)
+    assert result.status == "decoded", result.error
+    assert result.derived_from_video is False
+    assert result.metadata["extracted_by"] == "ffmpeg"
+    assert -25 < result.rms_db < -8
+
+
+def test_bad_video_reports_error_without_derived_file(tmp_path: Path):
+    data = tmp_path / "data"
+    data.mkdir()
+    video = data / "bad.mp4"
+    video.write_bytes(b"invalid media")
+    result = MediaAnalyzer(data).analyze_video_audio(video)
+    assert result.status in {"video_audio_extract_error", "video_audio_pending_tool"}
+    assert result.error
+    assert not list(data.rglob("*.wav"))

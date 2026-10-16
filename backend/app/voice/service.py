@@ -170,7 +170,7 @@ def _video_tools_available() -> bool:
     from app.voice.analyzer import _ffmpeg_tools
 
     ffprobe, ffmpeg = _ffmpeg_tools()
-    if ffprobe and ffmpeg:
+    if ffmpeg:
         return True
     try:
         import av  # noqa: F401

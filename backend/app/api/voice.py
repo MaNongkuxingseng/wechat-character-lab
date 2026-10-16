@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.providers.asr_base import MockASRProvider
 from app.providers.tts_base import MockTTSProvider
-from app.voice.service import analyze_voice_assets, list_voice_analyses
+from app.voice.service import _video_tools_available, analyze_voice_assets, list_voice_analyses
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
 MAX_AUDIO_UPLOAD_BYTES = 15 * 1024 * 1024
@@ -80,7 +80,7 @@ def voice_capabilities() -> dict[str, object]:
             "provider": "local",
             "available": True,
             "silk_decoder": False,
-            "video_audio": True,
+            "video_audio": _video_tools_available(),
         },
     }
 

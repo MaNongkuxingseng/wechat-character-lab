@@ -10,6 +10,7 @@ class SessionCreate(BaseModel):
     mode: Literal["daily", "topic"] = "topic"
     topic: str = Field(min_length=1, max_length=500)
     turn_limit: int = Field(default=12, ge=2, le=100)
+    turn_delay_seconds: float = Field(default=4.0, ge=0.5, le=60)
     role_ids: list[str] = Field(
         default_factory=lambda: ["role_a", "role_b"], min_length=2, max_length=2
     )

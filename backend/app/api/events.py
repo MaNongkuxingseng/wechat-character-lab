@@ -9,28 +9,25 @@ from app.core.state_machine import SessionState
 from app.db import SessionLocal
 from app.repositories.sessions import get_session
 from app.schemas.events import (
+    ClientEvent,
     ClientPing,
     ConnectionPong,
     ConnectionReady,
     EventAccepted,
     ProtocolError,
+    SessionPauseEvent,
+    SessionResumeEvent,
     SessionStartEvent,
     SessionStopEvent,
-    UserMessageEvent,
 )
 
 router = APIRouter(tags=["session-events"])
-ClientEventAdapter = TypeAdapter(
-    Annotated[
-        ClientPing | UserMessageEvent | SessionStartEvent | SessionStopEvent,
-        Field(discriminator="type"),
-    ]
-)
+ClientEventAdapter = TypeAdapter(Annotated[ClientEvent, Field(discriminator="type")])
 
 
 @router.websocket("/api/sessions/{session_id}/events")
 async def session_events(websocket: WebSocket, session_id: str) -> None:
-    """建立会话事件连接，并驱动本地 Mock A/B 对话编排。"""
+    """驱动本地 Mock 对话；接收循环始终可取消后台生成（generation）。"""
     with SessionLocal() as db:
         exists = get_session(db, session_id) is not None
     if not exists:
@@ -40,10 +37,9 @@ async def session_events(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
     await websocket.send_json(ConnectionReady(session_id=session_id).model_dump())
     auto_task: asyncio.Task[None] | None = None
-    generation_lock = asyncio.Lock()
 
-    async def cancel_auto_loop() -> None:
-        """等待后台轮次真正退出，避免停止后仍向客户端发送迟到事件。"""
+    async def cancel_auto_loop(reason: str) -> None:
+        """先等待生成退出，再记录中断；保证不会写入迟到回复。"""
         nonlocal auto_task
         if auto_task is None or auto_task.done():
             auto_task = None
@@ -54,22 +50,43 @@ async def session_events(websocket: WebSocket, session_id: str) -> None:
         except asyncio.CancelledError:
             pass
         auto_task = None
+        with SessionLocal() as db:
+            output = ConversationOrchestrator(db, session_id).record_event(
+                "generation.cancelled", {"reason": reason}
+            )
+        await websocket.send_json(output)
 
-    async def auto_loop() -> None:
-        """持续推进 A/B 轮次；取消任务即可停止迟到输出。"""
-        while True:
-            await asyncio.sleep(0.45)
-            async with generation_lock:
+    async def auto_loop(immediate: bool = False) -> None:
+        """轮间保留等待窗口；暂停、插话、停止均可取消整个任务。"""
+        try:
+            while True:
+                with SessionLocal() as db:
+                    current = get_session(db, session_id)
+                    if current is None or current.status != SessionState.RUNNING.value:
+                        return
+                    delay = float(current.settings.get("turn_delay_seconds", 4.0))
+                if not immediate:
+                    await asyncio.sleep(delay)
+                immediate = False
                 with SessionLocal() as db:
                     orchestrator = ConversationOrchestrator(db, session_id)
-                    current = orchestrator.session()
-                    if current.status != SessionState.RUNNING.value:
-                        return
-                    outputs = await orchestrator.create_role_turn()
-                    for output in outputs:
+                    for output in await orchestrator.create_role_turn():
                         await websocket.send_json(output)
                     if orchestrator.session().status == SessionState.COMPLETED.value:
                         return
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # 不向客户端泄漏 Provider 内部异常或凭证，只报告可恢复状态。
+            with SessionLocal() as db:
+                orchestrator = ConversationOrchestrator(db, session_id)
+                if orchestrator.session().status == SessionState.RUNNING.value:
+                    await websocket.send_json(orchestrator.set_state(SessionState.ERROR))
+            await websocket.send_json(
+                ProtocolError(
+                    code="generation_failed", message="角色生成失败，请新建会话。"
+                ).model_dump()
+            )
 
     try:
         while True:
@@ -83,47 +100,79 @@ async def session_events(websocket: WebSocket, session_id: str) -> None:
                 continue
 
             if isinstance(event, ClientPing):
-                response = ConnectionPong(request_id=event.request_id)
-                await websocket.send_json(response.model_dump())
+                await websocket.send_json(ConnectionPong(request_id=event.request_id).model_dump())
                 continue
 
             with SessionLocal() as db:
+                status = ConversationOrchestrator(db, session_id).session().status
+            allowed = {SessionState.RUNNING.value, SessionState.PAUSED.value}
+            if isinstance(event, SessionStartEvent):
+                allowed = {SessionState.CREATED.value}
+            elif isinstance(event, SessionPauseEvent):
+                allowed = {SessionState.RUNNING.value}
+            elif isinstance(event, SessionResumeEvent):
+                allowed = {SessionState.PAUSED.value}
+            elif isinstance(event, SessionStopEvent):
+                allowed.add(SessionState.CREATED.value)
+            if status not in allowed:
+                await websocket.send_json(
+                    ProtocolError(
+                        code="invalid_session_state", message="当前会话状态不允许此操作。"
+                    ).model_dump()
+                )
+                continue
+            if event.type == "user.message" and not event.text.strip():
+                await websocket.send_json(
+                    ProtocolError(code="empty_message", message="插话不能为空。").model_dump()
+                )
+                continue
+
+            # 取消操作在新事务之前完成，防止旧 ORM 快照覆盖新轮次计数。
+            await cancel_auto_loop(event.type)
+            with SessionLocal() as db:
                 orchestrator = ConversationOrchestrator(db, session_id)
                 if isinstance(event, SessionStartEvent):
-                    accepted = EventAccepted(
-                        client_message_id=event.client_message_id or "session-start"
-                    )
-                    await websocket.send_json(accepted.model_dump())
-                    await websocket.send_json(orchestrator.set_state(SessionState.INITIALIZING))
-                    await websocket.send_json(orchestrator.set_state(SessionState.RUNNING))
-                    async with generation_lock:
-                        for output in await orchestrator.create_role_turn():
-                            await websocket.send_json(output)
-                    if auto_task is None or auto_task.done():
-                        auto_task = asyncio.create_task(auto_loop())
-                    continue
-                if isinstance(event, SessionStopEvent):
-                    accepted = EventAccepted(
-                        client_message_id=event.client_message_id or "session-stop"
-                    )
-                    await websocket.send_json(accepted.model_dump())
-                    await cancel_auto_loop()
-                    for output in orchestrator.stop():
-                        await websocket.send_json(output)
-                    continue
-
-                response = EventAccepted(client_message_id=event.client_message_id)
-                await websocket.send_json(response.model_dump())
-                was_running = orchestrator.session().status == SessionState.RUNNING.value
-                if was_running:
-                    async with generation_lock:
-                        user_outputs = orchestrator.add_user_turn(event.text)
-                        for output in user_outputs:
-                            await websocket.send_json(output)
-                        current_session = orchestrator.session()
-                        if current_session.turn_count < current_session.turn_limit:
-                            for output in await orchestrator.create_role_turn():
-                                await websocket.send_json(output)
+                    outputs = [
+                        orchestrator.set_state(SessionState.INITIALIZING),
+                        orchestrator.set_state(SessionState.RUNNING),
+                    ]
+                elif isinstance(event, SessionPauseEvent):
+                    outputs = [orchestrator.set_state(SessionState.PAUSED)]
+                elif isinstance(event, SessionResumeEvent):
+                    outputs = [orchestrator.set_state(SessionState.RUNNING)]
+                elif isinstance(event, SessionStopEvent):
+                    outputs = orchestrator.stop()
+                else:
+                    current = orchestrator.session()
+                    if current.turn_count >= current.turn_limit:
+                        outputs = [orchestrator.set_state(SessionState.COMPLETED)]
+                        await websocket.send_json(
+                            ProtocolError(
+                                code="turn_limit", message="会话已达到轮次上限。"
+                            ).model_dump()
+                        )
+                    else:
+                        outputs = orchestrator.add_user_turn(event.text)
+                await websocket.send_json(
+                    EventAccepted(
+                        client_message_id=event.client_message_id or event.type
+                    ).model_dump()
+                )
+                for output in outputs:
+                    await websocket.send_json(output)
+                if orchestrator.session().status == SessionState.RUNNING.value:
+                    auto_task = asyncio.create_task(auto_loop(isinstance(event, SessionStartEvent)))
     except WebSocketDisconnect:
-        await cancel_auto_loop()
         return
+    finally:
+        # 断线自动暂停（disconnect pause），保留已完成消息和恢复入口。
+        if auto_task is not None and not auto_task.done():
+            auto_task.cancel()
+            try:
+                await auto_task
+            except asyncio.CancelledError:
+                pass
+        with SessionLocal() as db:
+            orchestrator = ConversationOrchestrator(db, session_id)
+            if orchestrator.session().status == SessionState.RUNNING.value:
+                orchestrator.set_state(SessionState.PAUSED)

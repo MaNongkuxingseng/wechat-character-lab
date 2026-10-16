@@ -41,6 +41,11 @@ pnpm dev
 用户可在时间线底部发送 `user.message` 插话，或发送 `session.stop` 停止后续轮次。每条 `Turn`
 和 `SessionEvent` 均写入 SQLite，便于后续实现断线回放和真实 Provider 替换。
 
+默认轮间等待 4 秒，界面可选择 2/4/8 秒；创建 API 的 `turn_delay_seconds` 支持 0.5–60 秒。
+`session.pause` 暂停、`session.resume` 继续；暂停期间仍可插话。插话/暂停/停止会取消后台
+generation 并记录 `generation.cancelled`；用户消息不改变 A/B 轮换顺序。轮次上限统计所有
+Turn（含用户插话）。已结束会话拒绝插话与重新启动；界面需新建会话。断线时自动暂停。
+
 当前事件类型包括：`connection.ready`、`session.state`、`turn.created`、`message.created`、
 `event.accepted`、`protocol.error`。Mock 台词不代表已经完成真实性格复现。
 
@@ -65,6 +70,26 @@ MediaRecorder、SILK 解码、流式播放或真人声音克隆。
 封装已校验，但当前没有专用 SILK decoder）、`video_audio_pending_tool` 和错误状态。
 SILK 不能仅凭字节数推断时长或音高；安装专用 decoder 后可替换对应 Provider。分析摘要写入
 SQLite 的 `voice_analyses` 表，不保存音频字节。
+
+视频和 MP3/M4A 等压缩音频优先用 PyAV，回退到 ffmpeg（无需 ffprobe），统一提取
+16 kHz / mono / s16 PCM。派生 WAV 保存于 `data/derived/audio/<SHA-256>.wav`，
+结果记录 `decoded_path`、`original_source_path`、`extracted_by` 和 `tool_version`；
+原始素材保留，视频候选不自动归属 A/B。本机没有视频时不会生成虚构视频结果。
+
+当前 Python 3.14 没有可用的 pilk 预编译 wheel，源码构建又缺少 Microsoft C++ Build Tools；
+因此 5 条 SILK 仍为 `validated_pending_decode`。ASR 仍为 Mock，没有真实逐字稿。
+
+## Windows 工具路径排障
+
+若 PowerShell 能执行但 `git` 提示无法识别，先用完整路径验证：
+
+```powershell
+Get-Location
+& "D:\Program Files\Git\cmd\git.exe" status --short
+```
+
+这属于进程 PATH 问题，不需要放宽文件权限。当前项目也可直接使用
+`backend/.venv/Scripts/python.exe` 运行后端检查；应用重启后再核对新终端 PATH。
 
 ## 验证
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { analyzeVoiceAssets, getVoiceAssets, getVoiceCapabilities, transcribeAudio, synthesizeAudio } from "../api/client";
+import { analyzeVoiceAssets, getVoiceAssets, getVoiceCapabilities, listVoiceAnalyses, transcribeAudio, synthesizeAudio } from "../api/client";
 import type { VoiceAnalysis, VoiceAssets, VoiceCapabilities } from "../types";
 
 export function VoiceControls() {
@@ -14,11 +14,12 @@ export function VoiceControls() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([getVoiceCapabilities(), getVoiceAssets()])
-      .then(([nextCapabilities, nextAssets]) => {
+    Promise.all([getVoiceCapabilities(), getVoiceAssets(), listVoiceAnalyses()])
+      .then(([nextCapabilities, nextAssets, savedAnalyses]) => {
         if (!active) return;
         setCapabilities(nextCapabilities);
         setAssets(nextAssets);
+        setAnalyses(savedAnalyses.items);
       })
       .catch((cause: unknown) => {
         if (active) setError(cause instanceof Error ? cause.message : "读取语音状态失败。");
@@ -87,7 +88,7 @@ export function VoiceControls() {
         <span>{error ?? (providerReady ? "ASR / TTS 仍为 Mock" : "ASR 可测试，TTS 尚未配置")}</span>
         <label className="voice-upload-button">
           导入音频
-          <input type="file" accept="audio/*" disabled={busy} onChange={(event) => void handleAudio(event.target.files?.[0])} />
+          <input type="file" accept="audio/*,.silk" disabled={busy} onChange={(event) => void handleAudio(event.target.files?.[0])} />
         </label>
       </div>
       <button type="button" className="secondary-button voice-analysis-button" disabled={busy} onClick={() => void handleAnalysis()}>
@@ -100,6 +101,8 @@ export function VoiceControls() {
             <li key={item.id}>
               <span>{item.source_path.split("/").pop()}</span>
               <strong>{item.status === "decoded" ? `${item.duration_ms ?? 0} ms` : item.status}</strong>
+              {item.derived_from_video && <small>视频派生音轨 / derived audio</small>}
+              {item.error && <small>{item.error}</small>}
             </li>
           ))}
         </ul>

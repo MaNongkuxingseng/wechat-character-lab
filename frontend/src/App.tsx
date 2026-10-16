@@ -9,7 +9,8 @@ import { useSession } from "./hooks/useSession";
 
 export default function App() {
   const [topic, setTopic] = useState("");
-  const { roles, session, connection, events, error, startSession, sendMessage, stopSession } = useSession();
+  const [turnDelay, setTurnDelay] = useState(4);
+  const { roles, session, connection, events, error, startSession, sendMessage, stopSession, pauseOrResumeSession } = useSession();
   const connected = connection === "connected";
 
   return (
@@ -74,11 +75,13 @@ export default function App() {
               <TopicPanel
                 topic={topic}
                 onTopicChange={setTopic}
-                onStart={() => void startSession(topic.trim())}
-                disabled={!connected}
+                onStart={() => void startSession(topic.trim(), turnDelay)}
+                turnDelay={turnDelay}
+                onTurnDelayChange={setTurnDelay}
+                disabled={!connected || Boolean(session && ["created", "initializing", "running", "paused", "stopping"].includes(session.status))}
               />
               {error && <div className="error-banner" role="alert">{error}</div>}
-              <ChatTimeline session={session} events={events} onSend={sendMessage} onStop={stopSession} />
+              <ChatTimeline session={session} events={events} onSend={sendMessage} onStop={stopSession} onPauseOrResume={pauseOrResumeSession} />
             </div>
             <aside className="detail-column">
               <VoiceControls />

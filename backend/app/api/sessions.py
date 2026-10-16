@@ -29,7 +29,10 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Con
         status="created",
         turn_limit=payload.turn_limit,
         turn_count=0,
-        settings={"role_ids": payload.role_ids},
+        settings={
+            "role_ids": payload.role_ids,
+            "turn_delay_seconds": payload.turn_delay_seconds,
+        },
         created_at=datetime.now(UTC),
     )
     db.add(session)

@@ -78,14 +78,7 @@ class MediaAnalyzer:
         if suffix in SUPPORTED_VIDEO_EXTENSIONS:
             return self._analyze_video(relative, source_kind, digest, resolved)
         if suffix in SUPPORTED_AUDIO_EXTENSIONS:
-            return MediaAnalysisResult(
-                source_path=relative,
-                source_kind=source_kind,
-                media_format=suffix.lstrip("."),
-                status="unsupported_decoder",
-                sha256=digest,
-                error="当前环境没有该格式的本地解码器；不会凭文件大小推断语音特征",
-            )
+            return self._decode_audio(relative, source_kind, digest, resolved)
         return MediaAnalysisResult(
             source_path=relative,
             source_kind=source_kind,
@@ -165,168 +158,121 @@ class MediaAnalyzer:
     def _analyze_video(
         self, relative: str, source_kind: str, digest: str, path: Path
     ) -> MediaAnalysisResult:
-        ffprobe, ffmpeg = _ffmpeg_tools()
-        if not ffprobe or not ffmpeg:
-            pyav_result = self._analyze_video_with_pyav(relative, source_kind, digest, path)
-            if pyav_result is not None:
-                return pyav_result
-            return MediaAnalysisResult(
-                source_path=relative,
-                source_kind=source_kind,
-                media_format=path.suffix.lstrip(".").upper(),
-                status="video_audio_pending_tool",
-                sha256=digest,
-                derived_from_video=True,
-                metadata={"ffprobe": bool(ffprobe), "ffmpeg": bool(ffmpeg)},
-                error="未找到 ffprobe/ffmpeg，无法安全提取视频音轨",
-            )
-        with tempfile.TemporaryDirectory(prefix="wechat-character-lab-audio-") as temp_dir:
-            extracted = Path(temp_dir) / "audio.wav"
-            probe = subprocess.run(
-                [
-                    ffprobe,
-                    "-v",
-                    "error",
-                    "-select_streams",
-                    "a:0",
-                    "-show_entries",
-                    "stream=codec_name,sample_rate,channels,duration",
-                    "-of",
-                    "json",
-                    str(path),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            no_audio_stream = '"streams": []' in probe.stdout
-            if probe.returncode != 0 or '"streams"' not in probe.stdout or no_audio_stream:
-                return MediaAnalysisResult(
-                    source_path=relative,
-                    source_kind=source_kind,
-                    media_format=path.suffix.lstrip(".").upper(),
-                    status="video_without_audio",
-                    sha256=digest,
-                    derived_from_video=True,
-                    error="视频没有可检测的音轨",
-                )
-            extract = subprocess.run(
-                [
-                    ffmpeg,
-                    "-y",
-                    "-i",
-                    str(path),
-                    "-map",
-                    "0:a:0",
-                    "-acodec",
-                    "pcm_s16le",
-                    str(extracted),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if extract.returncode != 0 or not extracted.is_file():
-                return MediaAnalysisResult(
-                    source_path=relative,
-                    source_kind=source_kind,
-                    media_format=path.suffix.lstrip(".").upper(),
-                    status="video_audio_extract_error",
-                    sha256=digest,
-                    derived_from_video=True,
-                    error="ffmpeg 提取视频音轨失败",
-                )
-            wav_result = self._analyze_wav(relative, "video_audio", digest, extracted)
-            wav_result.derived_from_video = True
-            wav_result.metadata["extracted_by"] = "ffmpeg"
-            return wav_result
+        return self._decode_audio(relative, source_kind, digest, path, derived=True)
 
-    def _analyze_video_with_pyav(
-        self, relative: str, source_kind: str, digest: str, path: Path
-    ) -> MediaAnalysisResult | None:
-        """无 ffprobe 时用 PyAV 直接读取首个音频流，避免解析命令行文本。"""
+    def _decode_audio(
+        self, relative: str, source_kind: str, digest: str, path: Path, *, derived: bool = False
+    ) -> MediaAnalysisResult:
+        """统一提取 mono/s16 PCM；派生 WAV 仅保存于 data/derived/audio。"""
+        result = MediaAnalysisResult(
+            source_path=relative,
+            source_kind=source_kind,
+            media_format=path.suffix.lstrip(".").upper(),
+            status="video_audio_pending_tool" if derived else "unsupported_decoder",
+            sha256=digest,
+            derived_from_video=derived,
+        )
+        output = self.data_root / "derived" / "audio" / f"{digest}.wav"
+        if not self._within_data_root(output.resolve()):
+            result.status = "rejected_outside_data_root"
+            result.error = "派生音频目录必须位于 data 内"
+            return result
+        output.parent.mkdir(parents=True, exist_ok=True)
         try:
             import av
         except ImportError:
-            return None
+            av = None
         try:
-            container = av.open(str(path))
-            stream = next((item for item in container.streams if item.type == "audio"), None)
-            if stream is None:
-                container.close()
-                return MediaAnalysisResult(
-                    source_path=relative,
-                    source_kind=source_kind,
-                    media_format=path.suffix.lstrip(".").upper(),
-                    status="video_without_audio",
-                    sha256=digest,
-                    derived_from_video=True,
-                    error="视频没有可检测的音轨",
-                )
-            sample_rate = int(stream.codec_context.sample_rate or 0) or None
-            channels = int(stream.codec_context.channels or 0) or None
-            sample_count = 0
-            energy_sum = 0.0
-            silent_count = 0
-            try:
-                import numpy as np
-            except ImportError:
-                np = None
-            for frame in container.decode(stream):
-                if np is None:
-                    break
-                values = frame.to_ndarray()
-                if values.size == 0:
-                    continue
-                numeric = values.astype(np.float64) / 32768.0
-                if numeric.ndim > 1:
-                    numeric = numeric.mean(axis=0)
-                sample_count += int(numeric.size)
-                energy_sum += float(np.square(numeric).sum())
-                silent_count += int(np.count_nonzero(np.abs(numeric) < 0.02))
-                if sample_rate is None:
-                    sample_rate = int(frame.sample_rate or 0) or None
-                if channels is None:
-                    channels = int(frame.layout.channels or 0) or None
-            duration_ms = None
-            if sample_rate and sample_count:
-                duration_ms = round(sample_count * 1000 / sample_rate)
-            elif stream.duration is not None and stream.time_base is not None:
-                duration_ms = round(float(stream.duration * stream.time_base) * 1000)
-            rms_db = None
-            silence_ratio = None
-            if sample_count:
-                rms_db = round(20 * math.log10(max(math.sqrt(energy_sum / sample_count), 1e-9)), 2)
-                silence_ratio = round(silent_count / sample_count, 4)
-            metadata = {
-                "extracted_by": "pyav",
-                "codec": str(stream.codec_context.name or "unknown"),
-            }
-            container.close()
-            return MediaAnalysisResult(
-                source_path=relative,
-                source_kind=source_kind,
-                media_format=path.suffix.lstrip(".").upper(),
-                status="decoded" if sample_count else "decoded_metadata",
-                sha256=digest,
-                derived_from_video=True,
-                duration_ms=duration_ms,
-                sample_rate=sample_rate,
-                channels=channels,
-                rms_db=rms_db,
-                silence_ratio=silence_ratio,
-                metadata=metadata,
-            )
-        except Exception as exc:  # PyAV exposes codec-specific exceptions by version.
-            return MediaAnalysisResult(
-                source_path=relative,
-                source_kind=source_kind,
-                media_format=path.suffix.lstrip(".").upper(),
-                status="video_audio_extract_error",
-                sha256=digest,
-                derived_from_video=True,
-                error=f"PyAV 读取视频音轨失败：{exc}",
-            )
+            with tempfile.TemporaryDirectory(prefix="wechat-character-lab-audio-") as temp_dir:
+                extracted = Path(temp_dir) / "audio.wav"
+                if av is not None:
+                    # AudioResampler 正确处理 float/planar/interleaved，不依赖 numpy。
+                    with av.open(str(path)) as container:
+                        stream = next(iter(container.streams.audio), None)
+                        if stream is None:
+                            result.status = "video_without_audio" if derived else "invalid_audio"
+                            result.error = "媒体没有可解码的音轨"
+                            return result
+                        codec = stream.codec_context.name
+                        resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+                        with wave.open(str(extracted), "wb") as wav:
+                            wav.setnchannels(1)
+                            wav.setsampwidth(2)
+                            wav.setframerate(16000)
+                            for frame in container.decode(stream):
+                                for pcm in resampler.resample(frame):
+                                    wav.writeframesraw(bytes(pcm.planes[0])[: pcm.samples * 2])
+                            for pcm in resampler.resample(None):
+                                wav.writeframesraw(bytes(pcm.planes[0])[: pcm.samples * 2])
+                    metadata = {
+                        "extracted_by": "pyav",
+                        "tool_version": av.__version__,
+                        "codec": codec,
+                    }
+                else:
+                    _, ffmpeg = _ffmpeg_tools()
+                    if not ffmpeg:
+                        result.error = "缺少 PyAV 或 ffmpeg，无法解码音轨"
+                        return result
+                    command = subprocess.run(
+                        [
+                            ffmpeg,
+                            "-v",
+                            "error",
+                            "-nostdin",
+                            "-y",
+                            "-i",
+                            str(path),
+                            "-map",
+                            "0:a:0",
+                            "-vn",
+                            "-ac",
+                            "1",
+                            "-ar",
+                            "16000",
+                            "-acodec",
+                            "pcm_s16le",
+                            str(extracted),
+                        ],
+                        capture_output=True,
+                        check=False,
+                        timeout=60,
+                    )
+                    if command.returncode != 0:
+                        result.status = "video_audio_extract_error" if derived else "invalid_audio"
+                        result.error = "ffmpeg 未能解码音轨，请检查文件及 audio stream"
+                        return result
+                    version = (
+                        subprocess.run(
+                            [ffmpeg, "-version"], capture_output=True, check=False, timeout=5
+                        )
+                        .stdout.decode("utf-8", errors="replace")
+                        .splitlines()
+                    )
+                    metadata = {
+                        "extracted_by": "ffmpeg",
+                        "tool_version": version[0] if version else "unknown",
+                    }
+                decoded = self._analyze_wav(relative, source_kind, digest, extracted)
+                if decoded.status != "decoded" or not decoded.duration_ms:
+                    result.status = "invalid_audio"
+                    result.error = "音轨未包含可解码 PCM 样本"
+                    return result
+                # 只在解码完整成功后落盘，失败不会覆盖上次有效派生文件。
+                shutil.copyfile(extracted, output)
+                decoded.media_format = result.media_format
+                decoded.derived_from_video = derived
+                decoded.metadata.update(metadata)
+                decoded.metadata["decoded_path"] = self.relative_path(output)
+                decoded.metadata["original_source_path"] = relative
+                return decoded
+        except (OSError, ValueError, EOFError, subprocess.SubprocessError) as exc:
+            result.error = f"本地音轨解码失败：{exc}"
+        except Exception as exc:
+            # PyAV 各版本 codec 异常类型不同，统一转换为明确的分析失败。
+            result.error = f"PyAV 音轨解码失败：{exc}"
+        result.status = "video_audio_extract_error" if derived else "invalid_audio"
+        return result
 
     def _within_data_root(self, path: Path) -> bool:
         try:

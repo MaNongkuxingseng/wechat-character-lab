@@ -119,6 +119,7 @@ export interface VoiceAnalysis {
 }
 
 export type ServerEvent =
+  | { type: "generation.cancelled"; reason: string; seq: number }
   | { type: "connection.ready"; session_id: string; seq: number }
   | { type: "connection.pong"; request_id?: string | null; seq: number }
   | { type: "event.accepted"; client_message_id: string; seq: number }

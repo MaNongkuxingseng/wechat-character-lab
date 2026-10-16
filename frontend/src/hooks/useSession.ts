@@ -33,22 +33,24 @@ export function useSession() {
     };
   }, []);
 
-  const startSession = useCallback(async (topic: string) => {
+  const startSession = useCallback(async (topic: string, turnDelaySeconds = 4) => {
     setError(null);
     try {
-      const created = await createSession(topic);
+      const created = await createSession(topic, turnDelaySeconds);
       setSession(created);
       setEvents([]);
       socketRef.current?.close();
       const socket = new WebSocket(getEventsUrl(created.id));
       socketRef.current = socket;
       socket.onmessage = (message: MessageEvent<string>) => {
+        if (socketRef.current !== socket) return;
         try {
           const event = JSON.parse(message.data) as ServerEvent;
           setEvents((current) => [...current, event]);
           if (event.type === "session.state") {
             setSession((current) => current ? { ...current, status: event.status } : current);
           }
+          if (event.type === "protocol.error") setError(event.message);
         } catch {
           setError("收到无法识别的服务端事件。");
         }
@@ -56,7 +58,7 @@ export function useSession() {
       socket.onopen = () => {
         socket.send(JSON.stringify({ type: "session.start", client_message_id: `start-${created.id}` }));
       };
-      socket.onerror = () => setError("会话事件连接失败。");
+      socket.onerror = () => { if (socketRef.current === socket) setError("会话事件连接失败。"); };
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "创建会话失败。");
     }
@@ -64,14 +66,15 @@ export function useSession() {
 
   const sendMessage = useCallback((text: string) => {
     const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN || !text.trim()) return false;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !text.trim()
+      || !session || !["running", "paused"].includes(session.status)) return false;
     socket.send(JSON.stringify({
       type: "user.message",
       client_message_id: crypto.randomUUID(),
       text: text.trim(),
     }));
     return true;
-  }, []);
+  }, [session]);
 
   const stopSession = useCallback(() => {
     const socket = socketRef.current;
@@ -80,5 +83,16 @@ export function useSession() {
     return true;
   }, []);
 
-  return { roles, session, connection, events, error, startSession, sendMessage, stopSession };
+  const pauseOrResumeSession = useCallback(() => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !session
+      || !["running", "paused"].includes(session.status)) return false;
+    socket.send(JSON.stringify({
+      type: session.status === "paused" ? "session.resume" : "session.pause",
+      client_message_id: crypto.randomUUID(),
+    }));
+    return true;
+  }, [session]);
+
+  return { roles, session, connection, events, error, startSession, sendMessage, stopSession, pauseOrResumeSession };
 }

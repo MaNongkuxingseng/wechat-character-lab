@@ -31,10 +31,42 @@ def test_mock_agents_keep_director_and_role_output_separate():
         consent_status="preset",
     )
 
-    assert "Mock 回复" in asyncio.run(MockRoleAgent().respond(role, "上下文"))
+    response = asyncio.run(
+        MockRoleAgent().respond(
+            role,
+            "主题：请求复合\n导演意图：open\n画像：消息长度中位数 10 字；问句比例 4%\n最近对话：",
+        )
+    )
+    assert "复合" in response
+    assert "消息长度中位数" not in response
+    assert "Mock" in response
     plan = asyncio.run(MockDirectorAgent().plan_next("主题", 0, ["role_a", "role_b"]))
     assert plan["speaker_role_id"] == "role_a"
+    assert plan["intent"] == "open"
     assert "text" not in plan
+
+
+def test_mock_role_agent_responds_to_user_context_and_role_difference():
+    context = (
+        "主题：请求复合\n导演意图：clarify\n画像：暂无已审核画像特征\n"
+        "最近对话：\nuser: 我希望这次能把边界说清楚"
+    )
+    role_a = RoleProfile(
+        id="role_a",
+        label="角色 A",
+        profile="",
+        style_profile={},
+        voice_profile={},
+        consent_status="preset",
+    )
+    role_b = role_a.model_copy(update={"id": "role_b", "label": "角色 B"})
+
+    response_a = asyncio.run(MockRoleAgent().respond(role_a, context))
+    response_b = asyncio.run(MockRoleAgent().respond(role_b, context))
+
+    assert "边界说清楚" in response_a
+    assert "边界说清楚" in response_b
+    assert response_a != response_b
 
 
 def test_mock_providers_do_not_call_external_services():

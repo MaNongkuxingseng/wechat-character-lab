@@ -25,6 +25,20 @@ class SessionStartEvent(BaseModel):
     client_message_id: str | None = None
 
 
+class SessionPauseEvent(BaseModel):
+    """暂停自动生成（pause），保留用户插话能力。"""
+
+    type: Literal["session.pause"]
+    client_message_id: str | None = None
+
+
+class SessionResumeEvent(BaseModel):
+    """继续暂停的会话（resume）。"""
+
+    type: Literal["session.resume"]
+    client_message_id: str | None = None
+
+
 class SessionStopEvent(BaseModel):
     """停止后续自动轮次。"""
 
@@ -65,4 +79,11 @@ class ProtocolError(BaseModel):
     seq: int = 0
 
 
-ClientEvent = ClientPing | UserMessageEvent | SessionStartEvent | SessionStopEvent
+ClientEvent = (
+    ClientPing
+    | UserMessageEvent
+    | SessionStartEvent
+    | SessionStopEvent
+    | SessionPauseEvent
+    | SessionResumeEvent
+)

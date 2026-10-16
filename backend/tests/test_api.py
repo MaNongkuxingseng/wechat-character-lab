@@ -100,7 +100,7 @@ def test_websocket_validates_and_acknowledges_events(client, test_session_factor
         websocket.send_json({"type": "client.ping", "request_id": "ping-1"})
         assert websocket.receive_json()["type"] == "connection.pong"
         websocket.send_json({"type": "user.message", "client_message_id": "msg-1", "text": "你好"})
-        assert websocket.receive_json()["type"] == "event.accepted"
+        assert websocket.receive_json()["code"] == "invalid_session_state"
         websocket.send_json({"type": "unsupported.event"})
         assert websocket.receive_json()["code"] == "invalid_event"
 
@@ -133,6 +133,7 @@ def test_websocket_runs_mock_turns_and_accepts_stop(client, test_session_factory
         assert first_turn["speaker_role_id"] == "role_a"
         assert websocket.receive_json()["type"] == "message.created"
         websocket.send_json({"type": "user.message", "client_message_id": "user-1", "text": "插话"})
+        assert websocket.receive_json()["type"] == "generation.cancelled"
         assert websocket.receive_json()["type"] == "event.accepted"
         assert websocket.receive_json()["type"] == "turn.created"
         assert websocket.receive_json()["type"] == "message.created"
@@ -178,3 +179,92 @@ def test_voice_analysis_contract_reports_local_capabilities(client):
     response = client.get("/api/voice/analyses")
     assert response.status_code == 200
     assert response.json() == {"items": []}
+
+
+def test_pause_user_resume_preserves_role_rotation(client, test_session_factory, monkeypatch):
+    """暂停期间可插话；resume 后 B 接续 A，结束后操作明确报错。"""
+    from sqlalchemy import select
+
+    from app.models import Turn
+
+    seed_roles(test_session_factory)
+    created = client.post(
+        "/api/sessions", json={"topic": "pause 测试", "turn_limit": 4, "turn_delay_seconds": 0.5}
+    ).json()
+    session_id = created["id"]
+    monkeypatch.setattr(events_api, "SessionLocal", test_session_factory)
+
+    def until(ws, event_type, **expected):
+        for _ in range(20):
+            event = ws.receive_json()
+            if event["type"] == event_type and all(event.get(k) == v for k, v in expected.items()):
+                return event
+        raise AssertionError("未收到预期事件")
+
+    with client.websocket_connect(f"/api/sessions/{session_id}/events") as ws:
+        until(ws, "connection.ready")
+        ws.send_json({"type": "session.start"})
+        assert until(ws, "message.created")["speaker_role_id"] == "role_a"
+        ws.send_json({"type": "session.pause"})
+        until(ws, "session.state", status="paused")
+        ws.send_json({"type": "user.message", "client_message_id": "u1", "text": "先听我说"})
+        assert until(ws, "message.created")["speaker_role_id"] is None
+        with test_session_factory() as db:
+            assert db.get(ConversationSession, session_id).status == "paused"
+        ws.send_json({"type": "client.ping", "request_id": "paused-check"})
+        until(ws, "connection.pong", request_id="paused-check")
+        ws.send_json({"type": "session.resume"})
+        until(ws, "session.state", status="running")
+        response = until(ws, "message.created")
+        assert response["speaker_role_id"] == "role_b"
+        assert "先听我说" in response["text"]
+        assert until(ws, "message.created")["speaker_role_id"] == "role_a"
+        until(ws, "session.state", status="completed")
+        ws.send_json({"type": "session.start"})
+        until(ws, "protocol.error", code="invalid_session_state")
+        ws.send_json({"type": "user.message", "client_message_id": "u2", "text": "太晚了"})
+        until(ws, "protocol.error", code="invalid_session_state")
+    with test_session_factory() as db:
+        turns = list(
+            db.scalars(select(Turn).where(Turn.session_id == session_id).order_by(Turn.sequence))
+        )
+        assert [turn.speaker_role_id for turn in turns] == ["role_a", None, "role_b", "role_a"]
+
+
+def test_pause_cancels_inflight_generation(client, test_session_factory, monkeypatch):
+    """慢 Provider 被 pause 取消后，不能持久化迟到回复。"""
+    import asyncio
+    import threading
+
+    from sqlalchemy import func, select
+
+    from app.agents.mock_agents import MockRoleAgent
+    from app.models import Turn
+
+    entered = threading.Event()
+    cancelled = threading.Event()
+
+    async def slow_respond(self, role, context):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    seed_roles(test_session_factory)
+    created = client.post("/api/sessions", json={"topic": "取消测试"}).json()
+    monkeypatch.setattr(events_api, "SessionLocal", test_session_factory)
+    monkeypatch.setattr(MockRoleAgent, "respond", slow_respond)
+    with client.websocket_connect(f"/api/sessions/{created['id']}/events") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "session.start"})
+        for _ in range(3):
+            ws.receive_json()
+        assert entered.wait(2)
+        ws.send_json({"type": "session.pause"})
+        assert ws.receive_json()["type"] == "generation.cancelled"
+        assert ws.receive_json()["type"] == "event.accepted"
+        assert ws.receive_json()["status"] == "paused"
+        assert cancelled.wait(2)
+        with test_session_factory() as db:
+            assert db.scalar(select(func.count(Turn.id))) == 0
