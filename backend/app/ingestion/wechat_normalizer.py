@@ -23,6 +23,13 @@ TYPE_NAMES = {
     47: "emoji",
     48: "location",
 }
+_SECURITY_PROVENANCE_FIELDS = (
+    "type",
+    "message_type",
+    "type_code",
+    "is_ai_generated",
+    "is_system",
+)
 VALID_EPOCH_MIN = 946684800  # 2000-01-01 UTC
 VALID_EPOCH_MAX = 4102444800  # 2100-01-01 UTC
 
@@ -101,15 +108,8 @@ def _normalize_message(
         content = None
         content_status = "not_text"
 
-    security_metadata = (
-        dict(message["source_metadata"])
-        if isinstance(message.get("source_metadata"), Mapping)
-        else {}
-    )
-    security_metadata.update(type=message.get("type"), message_type=message_type)
-    security_flags = derive_security_flags(
-        {**message, "message_type": message_type, "source_metadata": security_metadata}
-    )
+    raw_source_metadata = message.get("source_metadata")
+    security_flags = derive_security_flags(message)
     record = {
         "message_id": base_id,
         "message_id_status": id_status,
@@ -127,6 +127,7 @@ def _normalize_message(
         "is_ai_generated": security_flags.is_ai_generated,
         "is_system": security_flags.is_system,
         "security_flag_sources": security_flags.source_map(),
+        "security_flag_inputs": _security_flag_inputs(message, raw_source_metadata),
         "source_file": source_file,
         "source_message_ref": f"messages[{row_number}]",
         "source_metadata": {
@@ -137,6 +138,27 @@ def _normalize_message(
         },
     }
     return record, base_id
+
+
+def _security_flag_inputs(
+    message: Mapping[str, Any], source_metadata: Any
+) -> dict[str, dict[str, Any]]:
+    """保留安全推导涉及的原始字段，区分顶层与嵌套来源。"""
+    top_level = {
+        field: message[field]
+        for field in _SECURITY_PROVENANCE_FIELDS
+        if field in message
+    }
+    nested = (
+        {
+            field: source_metadata[field]
+            for field in _SECURITY_PROVENANCE_FIELDS
+            if field in source_metadata
+        }
+        if isinstance(source_metadata, Mapping)
+        else {}
+    )
+    return {"top_level": top_level, "source_metadata": nested}
 
 
 def _timestamp(value: Any) -> tuple[str | None, str]:

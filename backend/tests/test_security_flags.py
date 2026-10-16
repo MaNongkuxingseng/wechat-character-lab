@@ -164,6 +164,10 @@ def test_normalizer_emits_three_state_flags_and_preserves_sources():
         "is_ai_generated": "unknown:no_reliable_source",
         "is_system": "unknown:no_reliable_source",
     }
+    assert unknown["security_flag_inputs"] == {
+        "top_level": {"type": "文本", "type_code": 1},
+        "source_metadata": {},
+    }
 
     records, _ = normalize_payload(
         {
@@ -178,6 +182,59 @@ def test_normalizer_emits_three_state_flags_and_preserves_sources():
     assert records[0]["is_system"] is False
     assert records[1]["is_ai_generated"] is None
     assert records[1]["is_system"] is True
+
+
+def test_normalizer_preserves_conflicting_type_sources_without_overwriting_them():
+    records, _ = normalize_payload(
+        {
+            "messages": [
+                _raw_message(
+                    type="text",
+                    source_metadata={"type": "system", "message_type": "system"},
+                )
+            ]
+        },
+        source_file="synthetic.json",
+    )
+
+    record = records[0]
+    assert record["is_ai_generated"] is None
+    assert record["is_system"] is True
+    assert record["security_flag_sources"] == {
+        "is_ai_generated": "unknown:opposite_type:system@source_metadata.message_type",
+        "is_system": "type:system@source_metadata.message_type",
+    }
+    assert record["security_flag_inputs"] == {
+        "top_level": {"type": "text", "type_code": 1},
+        "source_metadata": {"type": "system", "message_type": "system"},
+    }
+
+
+def test_normalizer_keeps_top_level_and_nested_ai_type_conflict_auditable():
+    records, _ = normalize_payload(
+        {
+            "messages": [
+                _raw_message(
+                    type="system",
+                    message_type="system",
+                    source_metadata={"type": "assistant"},
+                )
+            ]
+        },
+        source_file="synthetic.json",
+    )
+
+    record = records[0]
+    assert record["is_ai_generated"] is None
+    assert record["is_system"] is None
+    assert record["security_flag_sources"] == {
+        "is_ai_generated": "conflict:type_markers:assistant+system",
+        "is_system": "conflict:type_markers:assistant+system",
+    }
+    assert record["security_flag_inputs"] == {
+        "top_level": {"type": "system", "message_type": "system", "type_code": 1},
+        "source_metadata": {"type": "assistant"},
+    }
 
 
 def test_unknown_flags_cannot_bypass_adapter_eligibility():
