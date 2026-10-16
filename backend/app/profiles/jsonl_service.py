@@ -54,6 +54,7 @@ class JsonlProfileResult:
 
     snapshot_id: str
     status: str
+    role_statuses: Mapping[str, str]
     sample_counts: Mapping[str, int]
     analyzer_statuses: tuple[Mapping[str, Any], ...]
     candidates: tuple[ReviewedCandidate, ...]
@@ -63,6 +64,7 @@ class JsonlProfileResult:
         return {
             "snapshot_id": self.snapshot_id,
             "status": self.status,
+            "role_statuses": dict(sorted(self.role_statuses.items())),
             "sample_counts": dict(sorted(self.sample_counts.items())),
             "analyzer_statuses": [dict(item) for item in self.analyzer_statuses],
             "candidates": [candidate.to_dict() for candidate in self.candidates],
@@ -99,7 +101,7 @@ def analyze_normalized_messages(
         )
         for analyzer in analyzer_list:
             output = analyzer.analyze(subject_id, role_messages)
-            _validate_analyzer_output(output)
+            _validate_analyzer_output(output, expected_sample_count=len(role_messages))
             analyzer_statuses.append(
                 {
                     "subject_id": subject_id,
@@ -142,8 +144,8 @@ def analyze_normalized_messages(
         for subject_id in sorted(set(sender_role_map.values()))
     }
     statuses = tuple(analyzer_statuses)
-    ready = any(item["status"] == "ready" for item in statuses)
-    status = "ready" if ready else "insufficient_samples"
+    role_statuses = _aggregate_role_statuses(statuses, sample_counts)
+    status = _aggregate_overall_status(role_statuses)
     snapshot_id = _snapshot_id(raw_messages, sender_role_map, statuses, candidates)
     LOGGER.info(
         "JSONL profile analysis complete: messages=%d eligible=%d candidates=%d rejected=%d",
@@ -153,7 +155,13 @@ def analyze_normalized_messages(
         len(all_unmatched),
     )
     return JsonlProfileResult(
-        snapshot_id, status, sample_counts, statuses, candidates, all_unmatched
+        snapshot_id,
+        status,
+        role_statuses,
+        sample_counts,
+        statuses,
+        candidates,
+        all_unmatched,
     )
 
 
@@ -309,7 +317,7 @@ def _validate_role_map(sender_role_map: Mapping[str, str]) -> None:
         raise ValueError("sender_role_map must map explicit sender labels to role_a or role_b")
 
 
-def _validate_analyzer_output(output: Any) -> None:
+def _validate_analyzer_output(output: Any, *, expected_sample_count: int) -> None:
     """拒绝不符合版本化 AnalyzerOutput 契约的 Provider 响应。"""
     if not isinstance(output, AnalyzerOutput):
         raise TypeError("analyzer output must be AnalyzerOutput")
@@ -324,8 +332,43 @@ def _validate_analyzer_output(output: Any) -> None:
         or output.sample_count < 0
         or not isinstance(output.signals, (tuple, list))
         or any(not isinstance(item, Mapping) for item in output.signals)
+        or output.sample_count != expected_sample_count
+        or (output.status == "ready" and output.sample_count == 0)
     ):
         raise ValueError("invalid analyzer output contract")
+
+
+def _aggregate_role_statuses(
+    analyzer_statuses: Sequence[Mapping[str, Any]], sample_counts: Mapping[str, int]
+) -> dict[str, str]:
+    """汇总同一角色的必需分析器；禁用的可选 Provider 不阻断角色状态。"""
+    role_statuses: dict[str, str] = {}
+    for subject_id in sorted(sample_counts):
+        required = [
+            item
+            for item in analyzer_statuses
+            if item["subject_id"] == subject_id and item["status"] != "provider_disabled"
+        ]
+        states = [str(item["status"]) for item in required]
+        if states and all(state == "ready" for state in states):
+            role_statuses[subject_id] = "ready"
+        elif any(state == "ready" for state in states):
+            role_statuses[subject_id] = "partial"
+        else:
+            role_statuses[subject_id] = "insufficient_samples"
+    return role_statuses
+
+
+def _aggregate_overall_status(role_statuses: Mapping[str, str]) -> str:
+    """整体状态严格覆盖当前显式角色映射，不臆测未映射角色是必需角色。"""
+    if not role_statuses:
+        return "insufficient_samples"
+    states = tuple(role_statuses.values())
+    if all(state == "ready" for state in states):
+        return "ready"
+    if any(state in {"ready", "partial"} for state in states):
+        return "partial"
+    return "insufficient_samples"
 
 
 def _snapshot_id(

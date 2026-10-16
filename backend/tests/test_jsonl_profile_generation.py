@@ -78,6 +78,7 @@ def test_jsonl_observable_and_fake_semantic_generate_reviewable_candidates(caplo
     result = analyze_normalized_messages(rows, sender_role_map=ROLE_MAP)
 
     assert result.status == "ready"
+    assert result.role_statuses == {"role_a": "ready", "role_b": "ready"}
     assert result.sample_counts == {"role_a": 3, "role_b": 3}
     assert result.candidates
     assert all(item.review_status == "pending" for item in result.candidates)
@@ -351,3 +352,113 @@ def test_observable_analyzer_reports_insufficient_samples_and_llm_is_disabled():
     assert llm.signals == ()
     with pytest.raises(ValueError, match="not implemented"):
         DisabledLLMSemanticAnalyzer(LLMProviderConfig(enabled=True))
+
+
+def test_one_role_ready_marks_overall_partial_when_a_is_ready_and_b_is_insufficient():
+    rows = [
+        *synthetic_messages()[:3],
+        message("syn-b-short-1", "合成发言者乙"),
+        message("syn-b-short-2", "合成发言者乙"),
+    ]
+
+    result = analyze_normalized_messages(rows, sender_role_map=ROLE_MAP)
+
+    assert result.role_statuses == {"role_a": "ready", "role_b": "insufficient_samples"}
+    assert result.status == "partial"
+
+
+def test_one_role_ready_marks_overall_partial_when_b_is_ready_and_a_is_insufficient():
+    rows = [
+        message("syn-a-short-1"),
+        message("syn-a-short-2"),
+        *synthetic_messages()[3:],
+    ]
+
+    result = analyze_normalized_messages(rows, sender_role_map=ROLE_MAP)
+
+    assert result.role_statuses == {"role_a": "insufficient_samples", "role_b": "ready"}
+    assert result.status == "partial"
+
+
+def test_two_roles_below_existing_minimum_are_insufficient():
+    rows = [
+        message("syn-a-short-1"),
+        message("syn-a-short-2"),
+        message("syn-b-short-1", "合成发言者乙"),
+        message("syn-b-short-2", "合成发言者乙"),
+    ]
+
+    result = analyze_normalized_messages(rows, sender_role_map=ROLE_MAP)
+
+    assert result.role_statuses == {
+        "role_a": "insufficient_samples",
+        "role_b": "insufficient_samples",
+    }
+    assert result.status == "insufficient_samples"
+
+
+def test_one_explicit_role_remains_valid_without_an_unmapped_second_role_requirement():
+    result = analyze_normalized_messages(
+        synthetic_messages()[:3],
+        sender_role_map={"合成发言者甲": "role_a"},
+    )
+
+    assert result.role_statuses == {"role_a": "ready"}
+    assert result.status == "ready"
+
+
+def test_role_status_is_partial_when_required_analyzers_disagree():
+    class FixedStatusAnalyzer:
+        def __init__(self, name, status):
+            self.name = name
+            self.version = "test"
+            self.status = status
+
+        def analyze(self, subject_id, messages):
+            signals = ()
+            if self.status == "ready":
+                signals = ({
+                    "subject_id": subject_id,
+                    "category": f"test.{self.name}",
+                    "claim": "合成状态测试",
+                    "evidence_ids": [str(messages[0]["message_id"])],
+                    "confidence": None,
+                },)
+            return AnalyzerOutput(
+                self.name, self.version, self.status, len(messages), signals
+            )
+
+    rows = synthetic_messages()[:3]
+    result = analyze_normalized_messages(
+        rows,
+        sender_role_map={"合成发言者甲": "role_a"},
+        analyzers=(
+            FixedStatusAnalyzer("ready_analyzer", "ready"),
+            FixedStatusAnalyzer("waiting_analyzer", "insufficient_samples"),
+        ),
+    )
+
+    assert [item["status"] for item in result.analyzer_statuses] == [
+        "ready",
+        "insufficient_samples",
+    ]
+    assert result.role_statuses == {"role_a": "partial"}
+    assert result.status == "partial"
+
+
+def test_filtered_invalid_messages_cannot_satisfy_analyzer_sample_threshold():
+    rows = [
+        message("syn-a-valid"),
+        message("syn-a-duplicate"),
+        message("syn-a-duplicate"),
+        message("syn-a-media", message_type="image"),
+        message("syn-a-unsafe", is_ai_generated=None),
+    ]
+    result = analyze_normalized_messages(
+        rows,
+        sender_role_map={"合成发言者甲": "role_a"},
+    )
+
+    assert result.sample_counts == {"role_a": 1}
+    assert result.role_statuses == {"role_a": "insufficient_samples"}
+    assert result.status == "insufficient_samples"
