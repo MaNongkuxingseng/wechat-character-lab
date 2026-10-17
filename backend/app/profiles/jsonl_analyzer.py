@@ -22,6 +22,7 @@ class AnalyzerOutput:
     status: str
     sample_count: int
     signals: tuple[Mapping[str, Any], ...]
+    metadata: Mapping[str, Any] | None = None
 
 
 class ProfileAnalyzer(Protocol):

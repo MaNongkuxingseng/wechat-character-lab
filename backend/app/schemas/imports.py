@@ -12,6 +12,7 @@ class ImportSourceRead(BaseModel):
     status: str
     message_count: int = 0
     error: str | None = None
+    semantic_llm_authorized: bool = False
 
 
 class ImportScanResponse(BaseModel):
@@ -58,6 +59,12 @@ class ImportApprovalRequest(BaseModel):
     """审核确认及可选的发言人到角色映射。"""
 
     speaker_mapping: dict[str, str] = Field(default_factory=dict)
+    semantic_llm_authorized: bool = False
+
+
+class SemanticTransferConsentRequest(BaseModel):
+    authorized: bool
+    reviewer_id: str = Field(min_length=1, max_length=255)
 
 
 class ImportCapabilities(BaseModel):

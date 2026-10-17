@@ -44,6 +44,8 @@ class CandidateSourceAnalysisResponse(BaseModel):
     snapshot_id: str
     created: bool
     status: str
+    semantic_status: str
+    analyzer_statuses: list[dict[str, object]]
     role_statuses: dict[str, str]
     sample_counts: dict[str, int]
     candidate_count: int

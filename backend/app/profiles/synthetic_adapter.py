@@ -46,6 +46,8 @@ class ProfileCandidate:
     counter_evidence_refs: tuple[str, ...]
     observed_at: str | None
     updated_at: str
+    inference_basis: str | None = None
+    conflict_status: str = "none"
 
     def to_dict(self) -> dict[str, Any]:
         """返回 JSON 可序列化且字段顺序稳定的字典。"""
@@ -181,6 +183,16 @@ def adapt_synthetic_signals(
                 counter_evidence_refs=resolved_counter_ids,
                 observed_at=max(timestamps) if timestamps else None,
                 updated_at=updated_at,
+                inference_basis=(
+                    signal.get("inference_basis")
+                    if isinstance(signal.get("inference_basis"), str)
+                    else None
+                ),
+                conflict_status=(
+                    signal.get("conflict_status")
+                    if signal.get("conflict_status") in {"none", "conflict", "unresolved"}
+                    else ("conflict" if resolved_counter_ids else "none")
+                ),
             )
         )
 
@@ -310,6 +322,8 @@ def _validated_reference_ids(
             errors.append(UnmatchedEvidence(signal_id, "", "evidence_field_missing"))
         return ()
     value = signal[field]
+    if not required and isinstance(value, (list, tuple)) and not value:
+        return ()
     if not isinstance(value, (list, tuple)) or not value:
         errors.append(UnmatchedEvidence(signal_id, "", "evidence_field_empty_or_invalid"))
         return ()

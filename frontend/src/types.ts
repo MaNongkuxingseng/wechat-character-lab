@@ -65,6 +65,95 @@ export interface ImportSource {
   status: "pending_review" | "approved" | "parse_error";
   message_count: number;
   error: string | null;
+  semantic_llm_authorized: boolean;
+}
+
+export interface CandidateEvidence {
+  id: string;
+  direction: "supporting" | "counter";
+  source_dataset_id: string;
+  source_message_id: string;
+  imported_message_id: string | null;
+  match_status: "unmatched" | "matched" | "invalid";
+  invalid_reason: string | null;
+  rationale: string;
+}
+
+export interface CandidateItem {
+  id: string;
+  profile_item_id: string;
+  subject_id: string;
+  category: string;
+  claim: string;
+  cognitive_state: "evidence_backed" | "model_inferred" | "unknown";
+  inference_basis: string | null;
+  confidence: number | null;
+  reviewer_confidence: number | null;
+  conflict_status: "none" | "conflict" | "unresolved";
+  analyzer_name: string;
+  analyzer_version: string;
+  review_status: "pending" | "accepted" | "rejected" | "needs_review";
+  evidence: CandidateEvidence[];
+  review_events: Array<{
+    id: string;
+    from_status: string | null;
+    to_status: string;
+    reviewer_id: string | null;
+    note: string | null;
+    decision_reason_code: string | null;
+    created_at: string;
+  }>;
+}
+
+export interface CandidateSnapshot {
+  id: string;
+  source_dataset_id: string;
+  role_scope: string[];
+  status: string;
+  analyzer_manifest: Array<{
+    subject_id: string;
+    analyzer_name: string;
+    analyzer_version: string;
+    status: string;
+    sample_count: number;
+  }>;
+  items: CandidateItem[];
+  unmatched_evidence: Array<{
+    signal_id: string;
+    evidence_id: string;
+    kind: string;
+    reason: string;
+  }>;
+}
+
+export interface CandidateSnapshotSummary {
+  id: string;
+  source_dataset_id: string;
+  status: string;
+  role_scope: string[];
+  created_at: string;
+}
+
+export interface CandidateAnalysisResult {
+  source_id: string;
+  snapshot_id: string;
+  created: boolean;
+  status: string;
+  semantic_status: string;
+  analyzer_statuses: Array<{
+    subject_id: string;
+    analyzer_name: string;
+    analyzer_version: string;
+    status: string;
+    sample_count: number;
+  }>;
+  role_statuses: Record<string, string>;
+  sample_counts: Record<string, number>;
+  candidate_count: number;
+  evidence_count: number;
+  mapping_count: number;
+  mapping_issue_count: number;
+  unmatched_count: number;
 }
 
 export interface ImportPreview {

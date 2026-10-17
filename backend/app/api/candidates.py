@@ -9,6 +9,7 @@ from app.models import (
     ProfileCandidateReviewEvent,
     ProfileCandidateSnapshot,
     ProfileCandidateUnmatchedEvidence,
+    Source,
 )
 from app.profiles.admission import AdmissionError, admit_candidate_item
 from app.profiles.candidate_persistence import CandidatePersistenceError
@@ -44,6 +45,8 @@ def analyze_approved_source(
         snapshot_id=persisted.snapshot_id,
         created=persisted.created,
         status=result.analysis_status,
+        semantic_status=result.semantic_status,
+        analyzer_statuses=[dict(item) for item in result.analyzer_statuses],
         role_statuses=dict(result.role_statuses),
         sample_counts=dict(result.sample_counts),
         candidate_count=persisted.candidate_count,
@@ -64,6 +67,53 @@ def get_profile_context(
     return build_role_context(db, role_id, topic=topic, session_id=session_id).to_dict()
 
 
+@router.get("/sources/{source_id}/snapshots")
+def list_source_candidate_snapshots(
+    source_id: str, db: Session = Depends(get_db)
+) -> list[dict[str, object]]:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail={"code": "source_not_found"})
+    snapshots = list(
+        db.scalars(
+            select(ProfileCandidateSnapshot)
+            .where(ProfileCandidateSnapshot.source_dataset_id == source_id)
+            .order_by(ProfileCandidateSnapshot.created_at.desc(), ProfileCandidateSnapshot.id)
+        )
+    )
+    return [
+        {
+            "id": item.id,
+            "status": item.status,
+            "role_scope": item.role_scope,
+            "created_at": item.created_at,
+            "analyzer_manifest": item.analyzer_manifest,
+        }
+        for item in snapshots
+    ]
+
+
+@router.get("/snapshots")
+def list_candidate_snapshots(db: Session = Depends(get_db)) -> list[dict[str, object]]:
+    snapshots = list(
+        db.scalars(
+            select(ProfileCandidateSnapshot).order_by(
+                ProfileCandidateSnapshot.created_at.desc(), ProfileCandidateSnapshot.id
+            )
+        )
+    )
+    return [
+        {
+            "id": item.id,
+            "source_dataset_id": item.source_dataset_id,
+            "status": item.status,
+            "role_scope": item.role_scope,
+            "created_at": item.created_at,
+        }
+        for item in snapshots
+    ]
+
+
 @router.get("/snapshots/{snapshot_id}")
 def get_candidate_snapshot(snapshot_id: str, db: Session = Depends(get_db)) -> dict[str, object]:
     snapshot = db.get(ProfileCandidateSnapshot, snapshot_id)
@@ -80,6 +130,7 @@ def get_candidate_snapshot(snapshot_id: str, db: Session = Depends(get_db)) -> d
         "id": snapshot.id,
         "source_dataset_id": snapshot.source_dataset_id,
         "role_scope": snapshot.role_scope,
+        "analyzer_manifest": snapshot.analyzer_manifest,
         "status": snapshot.status,
         "items": [
             {
@@ -89,9 +140,12 @@ def get_candidate_snapshot(snapshot_id: str, db: Session = Depends(get_db)) -> d
                 "category": item.category,
                 "claim": item.claim,
                 "cognitive_state": item.cognitive_state,
+                "inference_basis": item.inference_basis,
                 "confidence": item.confidence,
                 "reviewer_confidence": item.reviewer_confidence,
                 "conflict_status": item.conflict_status,
+                "analyzer_name": item.analyzer_name,
+                "analyzer_version": item.analyzer_version,
                 "review_status": item.review_status,
                 "evidence": _evidence(db, item.id),
                 "review_events": _review_events(db, item.id),
@@ -178,6 +232,7 @@ def _evidence(db: Session, candidate_id: str) -> list[dict[str, object]]:
             "imported_message_id": row.imported_message_id,
             "match_status": row.match_status,
             "invalid_reason": row.invalid_reason,
+            "rationale": row.rationale,
         }
         for row in db.scalars(
             select(ProfileCandidateEvidence)

@@ -14,7 +14,6 @@ from app.ingestion.security_flags import derive_security_flags
 from app.profiles.jsonl_analyzer import (
     AnalyzerOutput,
     DisabledLLMSemanticAnalyzer,
-    FakeSemanticAnalyzer,
     ObservableAnalyzer,
     ProfileAnalyzer,
 )
@@ -37,6 +36,8 @@ class ReviewedCandidate:
     analyzer_version: str
     review_status: str = "pending"
     reviewer_note: str | None = None
+    inference_basis: str | None = None
+    conflict_status: str = "none"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +46,8 @@ class ReviewedCandidate:
             "analyzer_version": self.analyzer_version,
             "review_status": self.review_status,
             "reviewer_note": self.reviewer_note,
+            "inference_basis": self.inference_basis,
+            "conflict_status": self.conflict_status,
         }
 
 
@@ -57,6 +60,7 @@ class JsonlProfileResult:
     role_statuses: Mapping[str, str]
     sample_counts: Mapping[str, int]
     analyzer_statuses: tuple[Mapping[str, Any], ...]
+    semantic_status: str
     candidates: tuple[ReviewedCandidate, ...]
     unmatched_evidence: tuple[UnmatchedEvidence, ...]
 
@@ -67,6 +71,7 @@ class JsonlProfileResult:
             "role_statuses": dict(sorted(self.role_statuses.items())),
             "sample_counts": dict(sorted(self.sample_counts.items())),
             "analyzer_statuses": [dict(item) for item in self.analyzer_statuses],
+            "semantic_status": self.semantic_status,
             "candidates": [candidate.to_dict() for candidate in self.candidates],
             "unmatched_evidence": [asdict(item) for item in self.unmatched_evidence],
         }
@@ -83,7 +88,7 @@ def analyze_normalized_messages(
     analyzer_list = tuple(
         analyzers
         if analyzers is not None
-        else (ObservableAnalyzer(), FakeSemanticAnalyzer(), DisabledLLMSemanticAnalyzer())
+        else (ObservableAnalyzer(), DisabledLLMSemanticAnalyzer())
     )
     raw_messages = tuple(messages)
     safe_messages, rejected = _eligible_messages(raw_messages, sender_role_map)
@@ -91,6 +96,7 @@ def analyze_normalized_messages(
     signals: list[Mapping[str, Any]] = []
     analyzer_statuses: list[Mapping[str, Any]] = []
     signal_analyzers: dict[tuple[str, str, str], tuple[str, str]] = {}
+    signal_details: dict[tuple[str, str, str], tuple[str | None, str]] = {}
     grouped: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for message in safe_messages:
         grouped[sender_role_map[str(message["sender"])]].append(message)
@@ -109,6 +115,7 @@ def analyze_normalized_messages(
                     "analyzer_version": output.analyzer_version,
                     "status": output.status,
                     "sample_count": output.sample_count,
+                    **({"metadata": dict(output.metadata)} if output.metadata else {}),
                 }
             )
             for signal in output.signals:
@@ -119,6 +126,12 @@ def analyze_normalized_messages(
                     str(signal.get("claim", "")),
                 )
                 signal_analyzers[key] = (output.analyzer_name, output.analyzer_version)
+                basis = signal.get("inference_basis")
+                conflict = signal.get("conflict_status")
+                signal_details[key] = (
+                    basis if isinstance(basis, str) else None,
+                    conflict if conflict in {"none", "conflict", "unresolved"} else "none",
+                )
 
     adapted = adapt_synthetic_signals(
         safe_messages,
@@ -134,6 +147,12 @@ def analyze_normalized_messages(
             )[0],
             analyzer_version=signal_analyzers.get(
                 (item.subject_id, item.category, item.claim), ("unknown", "unknown")
+            )[1],
+            inference_basis=signal_details.get(
+                (item.subject_id, item.category, item.claim), (None, "none")
+            )[0],
+            conflict_status=signal_details.get(
+                (item.subject_id, item.category, item.claim), (None, "none")
             )[1],
         )
         for item in adapted.candidates
@@ -160,6 +179,7 @@ def analyze_normalized_messages(
         role_statuses,
         sample_counts,
         statuses,
+        _semantic_status(statuses),
         candidates,
         all_unmatched,
     )
@@ -326,7 +346,23 @@ def _validate_analyzer_output(output: Any, *, expected_sample_count: int) -> Non
         or not output.analyzer_name.strip()
         or not isinstance(output.analyzer_version, str)
         or not output.analyzer_version.strip()
-        or output.status not in {"ready", "insufficient_samples", "provider_disabled"}
+        or output.status not in {
+            "ready",
+            "insufficient_samples",
+            "provider_disabled",
+            "provider_misconfigured",
+            "input_too_large",
+            "invalid_input",
+            "invalid_output",
+            "provider_unavailable",
+            "provider_rejected_request",
+            "rate_limited",
+            "timeout",
+            "provider_error",
+            "response_too_large",
+            "not_configured",
+            "source_transfer_not_authorized",
+        }
         or isinstance(output.sample_count, bool)
         or not isinstance(output.sample_count, int)
         or output.sample_count < 0
@@ -347,7 +383,8 @@ def _aggregate_role_statuses(
         required = [
             item
             for item in analyzer_statuses
-            if item["subject_id"] == subject_id and item["status"] != "provider_disabled"
+            if item["subject_id"] == subject_id
+            and item["status"] not in {"provider_disabled", "source_transfer_not_authorized"}
         ]
         states = [str(item["status"]) for item in required]
         if states and all(state == "ready" for state in states):
@@ -369,6 +406,24 @@ def _aggregate_overall_status(role_statuses: Mapping[str, str]) -> str:
     if any(state in {"ready", "partial"} for state in states):
         return "partial"
     return "insufficient_samples"
+
+
+def _semantic_status(analyzer_statuses: Sequence[Mapping[str, Any]]) -> str:
+    semantic = [
+        item
+        for item in analyzer_statuses
+        if str(item.get("analyzer_name", "")).startswith("llm_semantic")
+    ]
+    if not semantic:
+        return "not_configured"
+    states = [str(item.get("status", "unknown")) for item in semantic]
+    if all(state == "ready" for state in states):
+        return "ready"
+    if any(state == "ready" for state in states):
+        return "partial"
+    if len(set(states)) == 1:
+        return states[0]
+    return "partial"
 
 
 def _snapshot_id(

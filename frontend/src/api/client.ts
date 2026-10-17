@@ -1,6 +1,9 @@
 import type {
   ImportPreview,
   ImportSource,
+  CandidateAnalysisResult,
+  CandidateSnapshot,
+  CandidateSnapshotSummary,
   ProfileVersion,
   ProfileVersionSummary,
   RoleProfile,
@@ -101,10 +104,67 @@ export function getImportPreview(sourceId: string): Promise<ImportPreview> {
 export function approveImport(
   sourceId: string,
   speakerMapping: Record<string, string>,
+  semanticLlmAuthorized = false,
 ): Promise<{ source: ImportSource; imported_messages: number }> {
   return request(`/api/imports/${sourceId}/approve`, {
     method: "POST",
-    body: JSON.stringify({ speaker_mapping: speakerMapping }),
+    body: JSON.stringify({
+      speaker_mapping: speakerMapping,
+      semantic_llm_authorized: semanticLlmAuthorized,
+    }),
+  });
+}
+
+export function analyzeCandidateSource(sourceId: string): Promise<CandidateAnalysisResult> {
+  return request(`/api/candidate/sources/${encodeURIComponent(sourceId)}/analyze`, {
+    method: "POST",
+  });
+}
+
+export function getCandidateSnapshot(snapshotId: string): Promise<CandidateSnapshot> {
+  return request(`/api/candidate/snapshots/${encodeURIComponent(snapshotId)}`);
+}
+
+export function listCandidateSnapshots(): Promise<CandidateSnapshotSummary[]> {
+  return request("/api/candidate/snapshots");
+}
+
+export function reviewCandidateItem(
+  candidateId: string,
+  payload: {
+    to_status: "pending" | "accepted" | "rejected" | "needs_review";
+    expected_from_status: string;
+    reviewer_id?: string;
+    note: string;
+    decision_reason_code?: string;
+    reviewer_confidence?: number;
+  },
+): Promise<unknown> {
+  return request(`/api/candidate/items/${encodeURIComponent(candidateId)}/review`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function admitCandidateItem(candidateId: string): Promise<{
+  profile_version_id: string;
+  role_id: string;
+  version: number;
+  status: string;
+}> {
+  return request(`/api/candidate/items/${encodeURIComponent(candidateId)}/admit`, {
+    method: "POST",
+  });
+}
+
+export function updateSemanticTransferConsent(
+  sourceId: string,
+  authorized: boolean,
+  reviewerId: string,
+): Promise<ImportSource> {
+  return request(`/api/imports/${encodeURIComponent(sourceId)}/semantic-transfer-consent`, {
+    method: "POST",
+    body: JSON.stringify({ authorized, reviewer_id: reviewerId }),
   });
 }
 

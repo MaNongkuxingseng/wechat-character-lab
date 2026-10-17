@@ -26,8 +26,9 @@ from app.profiles.candidate_persistence import (
     CandidatePersistenceResult,
     _persist_profile_result,
 )
-from app.profiles.jsonl_analyzer import DisabledLLMSemanticAnalyzer, ObservableAnalyzer
+from app.profiles.jsonl_analyzer import ObservableAnalyzer, ProfileAnalyzer
 from app.profiles.jsonl_service import JsonlProfileResult
+from app.profiles.semantic_analyzer import create_semantic_analyzer
 
 
 class SourceContractError(ValueError):
@@ -57,6 +58,8 @@ class ControlledPersistenceResult:
     analysis_status: str
     role_statuses: Mapping[str, str]
     sample_counts: Mapping[str, int]
+    analyzer_statuses: tuple[Mapping[str, Any], ...]
+    semantic_status: str
 
 
 def build_canonical_dataset(
@@ -140,6 +143,20 @@ def analyzer_digest(result: JsonlProfileResult) -> str:
     payload = {
         "pipeline": CANONICAL_CONTRACT_VERSION,
         "analyzers": analyzers,
+        "candidate_output_digests": sorted(
+            hashlib.sha256(
+                json.dumps(
+                    item.candidate.to_dict(),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            for item in result.candidates
+        ),
+        "analyzer_metadata": [
+            item.get("metadata") for item in result.analyzer_statuses
+        ],
         "observable_config": {
             "minimum_sample_count": ObservableAnalyzer.minimum_sample_count,
             "maximum_sample_count": ObservableAnalyzer.maximum_sample_count,
@@ -277,6 +294,8 @@ def _persist_analysis_result(
         analysis_status=result.status,
         role_statuses=dict(result.role_statuses),
         sample_counts=dict(result.sample_counts),
+        analyzer_statuses=tuple(dict(item) for item in result.analyzer_statuses),
+        semantic_status=result.semantic_status,
     )
 
 
@@ -358,12 +377,19 @@ def canonical_rows_from_approved_source(
 
 
 def analyze_and_persist_approved_source(
-    db: Session, source_id: str
+    db: Session,
+    source_id: str,
+    *,
+    semantic_analyzer: ProfileAnalyzer | None = None,
 ) -> ControlledPersistenceResult:
-    """Run a trusted source lifecycle with Observable-only analysis and disabled LLM."""
+    """Analyze an approved source using local observables and configured semantics."""
     records, sender_role_map = canonical_rows_from_approved_source(db, source_id)
     return analyze_and_persist_jsonl(
-        db, records, sender_role_map=sender_role_map, source_id=source_id
+        db,
+        records,
+        sender_role_map=sender_role_map,
+        source_id=source_id,
+        semantic_analyzer=semantic_analyzer,
     )
 
 
@@ -373,8 +399,9 @@ def analyze_and_persist_jsonl(
     *,
     sender_role_map: Mapping[str, str],
     source_id: str,
+    semantic_analyzer: ProfileAnalyzer | None = None,
 ) -> ControlledPersistenceResult:
-    """Analyze canonical JSONL using Observable plus a disabled LLM boundary."""
+    """Analyze canonical JSONL; semantic transfer requires two explicit opt-ins."""
     from app.profiles.jsonl_service import analyze_normalized_messages
 
     source = db.get(Source, source_id)
@@ -382,10 +409,19 @@ def analyze_and_persist_jsonl(
         raise SourceContractError("source_not_found")
     if source.status != "approved":
         raise SourceContractError("source_not_approved")
+    transfer_authorized = bool((source.metadata_json or {}).get("semantic_llm_authorized", False))
+    selected_semantic_analyzer = (
+        semantic_analyzer
+        if transfer_authorized and semantic_analyzer is not None
+        else create_semantic_analyzer(approved_source=transfer_authorized)
+    )
     result = analyze_normalized_messages(
         messages,
         sender_role_map=sender_role_map,
-        analyzers=(ObservableAnalyzer(), DisabledLLMSemanticAnalyzer()),
+        analyzers=(
+            ObservableAnalyzer(),
+            selected_semantic_analyzer,
+        ),
     )
     return _persist_analysis_result(
         db,

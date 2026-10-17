@@ -27,6 +27,7 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [semanticLlmAuthorized, setSemanticLlmAuthorized] = useState(false);
 
   async function refreshSources(preferredId?: string) {
     const nextSources = await listImportSources();
@@ -127,7 +128,7 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
     setError(null);
     setNotice(null);
     try {
-      const result = await approveImport(selectedId, mapping);
+      const result = await approveImport(selectedId, mapping, semanticLlmAuthorized);
       await refreshSources(selectedId);
       setPreview(await getImportPreview(selectedId));
       setNotice(`已导入 ${result.imported_messages} 条消息；未映射发言人的消息不会用于角色画像。`);
@@ -153,6 +154,15 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
           </div>
         </div>
         <div className="import-actions">
+          <label className="semantic-consent">
+            <input
+              type="checkbox"
+              checked={semanticLlmAuthorized}
+              disabled={!selectedId || selectedSource?.status !== "pending_review" || busy}
+              onChange={(event) => setSemanticLlmAuthorized(event.target.checked)}
+            />
+            允许后续语义 Provider 发送来源文本（默认关闭）
+          </label>
           <label className="secondary-button upload-button">
             {busy ? "处理中…" : "选择 ZIP 导出包"}
             <input
@@ -196,6 +206,7 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
                     type="button"
                     onClick={() => {
                       setSelectedId(source.id);
+                      setSemanticLlmAuthorized(false);
                       setError(null);
                       setNotice(null);
                     }}

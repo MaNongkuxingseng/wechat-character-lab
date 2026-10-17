@@ -122,8 +122,13 @@ def _persist_profile_result(
             candidate = reviewed.candidate
             if db.get(Role, candidate.subject_id) is None:
                 raise CandidatePersistenceError(f"role_not_found:{candidate.subject_id}")
-            cognitive_state, inference_basis = _cognitive_state(reviewed)
-            conflict_status = "conflict" if candidate.counter_evidence_refs else "none"
+            cognitive_state, default_inference_basis = _cognitive_state(reviewed)
+            inference_basis = reviewed.inference_basis or default_inference_basis
+            conflict_status = (
+                "conflict"
+                if candidate.counter_evidence_refs and reviewed.conflict_status == "none"
+                else reviewed.conflict_status
+            )
             item = ProfileCandidateItem(
                 id=str(uuid4()),
                 snapshot_id=snapshot.id,

@@ -23,6 +23,7 @@ from app.schemas.imports import (
     ImportScanResponse,
     ImportSourceRead,
     ImportSourceSummary,
+    SemanticTransferConsentRequest,
 )
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
@@ -196,12 +197,41 @@ def approve_import(
             )
         )
     source.status = "approved"
-    source.metadata_json = {**source.metadata_json, "message_count": len(messages)}
+    source.metadata_json = {
+        **source.metadata_json,
+        "message_count": len(messages),
+        "semantic_llm_authorized": payload.semantic_llm_authorized,
+    }
     db.commit()
     db.refresh(source)
     return ImportApprovalResponse(
         source=_source_read(source), imported_messages=count_messages(db, source.id)
     )
+
+
+@router.post("/{source_id}/semantic-transfer-consent", response_model=ImportSourceRead)
+def update_semantic_transfer_consent(
+    source_id: str,
+    payload: SemanticTransferConsentRequest,
+    db: Session = Depends(get_db),
+) -> ImportSourceRead:
+    """Record an explicit per-source opt-in/out; this endpoint never calls a provider."""
+    source = get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail={"code": "source_not_found"})
+    if source.status != "approved":
+        raise HTTPException(status_code=409, detail={"code": "source_not_approved"})
+    metadata = dict(source.metadata_json or {})
+    metadata["semantic_llm_authorized"] = payload.authorized
+    metadata["semantic_llm_authorization"] = {
+        "authorized": payload.authorized,
+        "reviewer_id": payload.reviewer_id.strip(),
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    source.metadata_json = metadata
+    db.commit()
+    db.refresh(source)
+    return _source_read(source)
 
 
 def _sha256(path: Path) -> str:
@@ -271,4 +301,5 @@ def _source_read(source: Source) -> ImportSourceRead:
         status=source.status,
         message_count=int(source.metadata_json.get("message_count", 0)),
         error=source.metadata_json.get("error"),
+        semantic_llm_authorized=bool(source.metadata_json.get("semantic_llm_authorized", False)),
     )

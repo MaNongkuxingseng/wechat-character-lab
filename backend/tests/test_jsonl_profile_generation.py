@@ -84,7 +84,7 @@ def test_jsonl_observable_and_fake_semantic_generate_reviewable_candidates(caplo
     assert all(item.review_status == "pending" for item in result.candidates)
     for item in result.candidates:
         assert item.candidate.confidence is None
-        assert item.analyzer_name in {"jsonl_observable", "fake_semantic"}
+        assert item.analyzer_name == "jsonl_observable"
         refs = (*item.candidate.evidence_refs, *item.candidate.counter_evidence_refs)
         assert refs
         assert len(refs) == len(set(refs))
@@ -137,7 +137,11 @@ def test_duplicate_ids_are_rejected_as_a_group_and_unmapped_sender_is_rejected()
 
 
 def test_candidate_review_and_role_config_preview_are_non_persistent_and_role_scoped():
-    result = analyze_normalized_messages(synthetic_messages(), sender_role_map=ROLE_MAP)
+    result = analyze_normalized_messages(
+        synthetic_messages(),
+        sender_role_map=ROLE_MAP,
+        analyzers=(ObservableAnalyzer(), FakeSemanticAnalyzer()),
+    )
     semantic = next(
         item
         for item in result.candidates

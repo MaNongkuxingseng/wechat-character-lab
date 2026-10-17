@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChatTimeline } from "./components/ChatTimeline";
+import { CandidateWorkbench } from "./components/CandidateWorkbench";
 import { ImportWorkbench } from "./components/ImportWorkbench";
 import { ProfileWorkbench } from "./components/ProfileWorkbench";
 import { RoleBadge } from "./components/RoleBadge";
@@ -11,6 +12,7 @@ export default function App() {
   const [topic, setTopic] = useState("");
   const [turnDelay, setTurnDelay] = useState(4);
   const [roleIds, setRoleIds] = useState<[string, string]>(["role_a", "role_b"]);
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const { roles, session, connection, events, error, startSession, sendMessage, stopSession, pauseOrResumeSession } = useSession();
   const connected = connection === "connected";
 
@@ -110,7 +112,12 @@ export default function App() {
             </aside>
           </div>
           <ImportWorkbench roles={roles} connected={connected} />
-          <ProfileWorkbench roles={roles} connected={connected} />
+          <ProfileWorkbench key={profileRefreshKey} roles={roles} connected={connected} />
+          <CandidateWorkbench
+            roles={roles}
+            connected={connected}
+            onProfileDraftCreated={() => setProfileRefreshKey((current) => current + 1)}
+          />
           <footer className="page-footer"><span>WECHAT CHARACTER LAB</span><span>个人本地工作区</span></footer>
         </section>
       </div>

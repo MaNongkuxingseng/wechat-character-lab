@@ -171,6 +171,15 @@ textarea::placeholder { color: #a2aaa4; }
 .import-confirm-row .primary-button { min-height: 33px; }
 .import-approved-note { margin-top: 12px; padding: 9px 10px; border: 1px solid #d5e5d8; border-radius: 4px; background: #f2f8f3; color: #52715a; font-size: 10px; }
 .profile-workbench { margin-top: 36px; padding-top: 20px; border-top: 1px solid #cfd6d0; }
+.candidate-workbench { margin-top: 36px; padding-top: 20px; border-top: 1px solid #cfd6d0; }
+.candidate-list { display: grid; gap: 10px; }
+.candidate-item { padding: 14px; border: 1px solid #e0e6e0; border-radius: 5px; background: rgba(255,255,255,.65); }
+.candidate-claim { margin: 8px 0; color: #39453d; font-size: 12px; line-height: 1.6; }
+.candidate-basis { margin: 10px 0 0; padding: 8px; border-left: 2px solid #c8d7cc; color: #778078; font-size: 10px; line-height: 1.5; white-space: pre-wrap; }
+.candidate-evidence-list { margin: 8px 0 0; padding-left: 17px; color: #66736a; font-size: 10px; line-height: 1.6; }
+.candidate-confidence-label { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; color: #778078; font-size: 10px; }
+.candidate-confidence-label input { width: 90px; }
+.semantic-consent { display: inline-flex; align-items: center; gap: 6px; color: #778078; font-size: 10px; }
 .profile-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .profile-header .section-heading { margin-bottom: 0; }
 .profile-controls { display: flex; align-items: center; gap: 10px; }
