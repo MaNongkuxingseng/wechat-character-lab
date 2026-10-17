@@ -38,12 +38,24 @@ def test_dialogue_provider_parses_text_and_reuses_trace_id(monkeypatch):
     def request(body, trace_id):
         captured["body"] = json.loads(body)
         captured["trace_id"] = trace_id
-        return json.dumps({"choices": [{"message": {"content": " answer "}}]}).encode()
+        return json.dumps(
+            {
+                "choices": [{"message": {"content": " answer "}}],
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                    "total_tokens": 18,
+                },
+            }
+        ).encode()
 
     monkeypatch.setattr(provider, "_request", request)
     result = asyncio.run(provider.generate("system", "user"))
     assert result.text == "answer"
     assert result.trace_id == captured["trace_id"]
+    assert result.prompt_tokens == 11
+    assert result.completion_tokens == 7
+    assert result.total_tokens == 18
     assert captured["body"]["model"] == "deepseek-test"
     assert captured["body"]["messages"][-1]["content"] == "user"
 
@@ -61,6 +73,21 @@ def test_dialogue_provider_rejects_invalid_responses(monkeypatch, response, code
     monkeypatch.setattr(provider, "_request", lambda body, trace_id: response)
     with pytest.raises(DialogueProviderError, match=code):
         asyncio.run(provider.generate("system", "user"))
+
+
+def test_dialogue_provider_allows_missing_or_invalid_usage(monkeypatch):
+    provider = OpenAICompatibleLLMProvider(_config())
+    response = json.dumps(
+        {
+            "choices": [{"message": {"content": "answer"}}],
+            "usage": {"prompt_tokens": True, "completion_tokens": -1},
+        }
+    ).encode()
+    monkeypatch.setattr(provider, "_request", lambda body, trace_id: response)
+    result = asyncio.run(provider.generate("system", "user"))
+    assert result.prompt_tokens is None
+    assert result.completion_tokens is None
+    assert result.total_tokens is None
 
 
 def test_dialogue_provider_classifies_authentication_failure(monkeypatch):

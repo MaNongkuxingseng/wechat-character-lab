@@ -146,6 +146,7 @@ class OpenAICompatibleSemanticAnalyzer:
                     {"role": "system", "content": _system_prompt(subject_id)},
                     {"role": "user", "content": encoded_input},
                 ],
+                "max_tokens": 1200,
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -158,25 +159,30 @@ class OpenAICompatibleSemanticAnalyzer:
             response_bytes = self._request_with_retry(
                 self.config.endpoint or "", request_body, headers
             )
-            response = json.loads(response_bytes.decode("utf-8"))
+            try:
+                response = json.loads(response_bytes.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise _InvalidSemanticOutput("response_json_decode") from exc
             content = response["choices"][0]["message"]["content"]
             if not isinstance(content, str):
-                raise ValueError("provider_content_not_text")
-            payload = json.loads(content)
+                raise _InvalidSemanticOutput("provider_content_not_text")
+            try:
+                payload = _parse_provider_json(content)
+            except json.JSONDecodeError as exc:
+                raise _InvalidSemanticOutput("content_json_decode") from exc
             signals = _validate_semantic_payload(payload, subject_id, records)
         except _ProviderFailure as exc:
             LOGGER.warning("semantic provider request failed: status=%s", exc.status)
             return self._result(exc.status, len(messages))
-        except (
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-            KeyError,
-            IndexError,
-            TypeError,
-            ValueError,
-        ):
+        except _InvalidSemanticOutput as exc:
             LOGGER.warning("semantic provider response rejected: status=invalid_output")
-            return self._result("invalid_output", len(messages))
+            return self._result("invalid_output", len(messages), error_code=exc.code)
+        except (KeyError, IndexError, TypeError) as exc:
+            LOGGER.warning("semantic provider response rejected: status=invalid_output")
+            return self._result("invalid_output", len(messages), error_code=type(exc).__name__)
+        except ValueError as exc:
+            LOGGER.warning("semantic provider response rejected: status=invalid_output")
+            return self._result("invalid_output", len(messages), error_code=str(exc))
         except TimeoutError:
             LOGGER.warning("semantic provider request failed: status=timeout")
             return self._result("timeout", len(messages))
@@ -241,8 +247,11 @@ class OpenAICompatibleSemanticAnalyzer:
                 raise
         raise _ProviderFailure("provider_unavailable")
 
-    def _result(self, status: str, sample_count: int) -> AnalyzerOutput:
-        return AnalyzerOutput(self.name, self.version, status, sample_count, ())
+    def _result(
+        self, status: str, sample_count: int, *, error_code: str | None = None
+    ) -> AnalyzerOutput:
+        metadata = {"error_code": error_code} if error_code else None
+        return AnalyzerOutput(self.name, self.version, status, sample_count, (), metadata)
 
 
 def _fit_records_to_budget(
@@ -267,6 +276,12 @@ class _ProviderFailure(Exception):
     def __init__(self, status: str) -> None:
         self.status = status
         super().__init__(status)
+
+
+class _InvalidSemanticOutput(ValueError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
 
 
 def _http_transport(
@@ -407,6 +422,16 @@ def _validated_ids(
 
 def _bounded_text(value: Any, minimum: int, maximum: int) -> bool:
     return isinstance(value, str) and minimum <= len(value.strip()) <= maximum
+
+
+def _parse_provider_json(content: str) -> Any:
+    """Accept a JSON object optionally wrapped in a Markdown code fence."""
+    text = content.strip()
+    if text.startswith("```") and text.endswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3:
+            text = "\n".join(lines[1:-1]).strip()
+    return json.loads(text)
 
 
 def _contains_verbatim_excerpt(value: str, contents: Any) -> bool:

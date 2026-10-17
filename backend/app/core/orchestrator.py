@@ -181,6 +181,9 @@ class ConversationOrchestrator:
             "generation_status": "success",
             "latency_ms": generation.latency_ms if generation else 0,
             "trace_id": generation.trace_id if generation else None,
+            "prompt_tokens": generation.prompt_tokens if generation else None,
+            "completion_tokens": generation.completion_tokens if generation else None,
+            "total_tokens": generation.total_tokens if generation else None,
         }
         outputs = [
             self.record_event("turn.created", payload),

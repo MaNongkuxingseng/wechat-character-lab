@@ -221,6 +221,9 @@ def test_real_role_agent_uses_snapshot_and_records_provider_trace(
             model="deepseek-test",
             latency_ms=17,
             trace_id="trace-synthetic-1",
+            prompt_tokens=120,
+            completion_tokens=35,
+            total_tokens=155,
         )
 
     monkeypatch.setattr(
@@ -246,6 +249,9 @@ def test_real_role_agent_uses_snapshot_and_records_provider_trace(
         assert message["model"] == "deepseek-test"
         assert message["latency_ms"] == 17
         assert message["trace_id"] == "trace-synthetic-1"
+        assert message["prompt_tokens"] == 120
+        assert message["completion_tokens"] == 35
+        assert message["total_tokens"] == 155
         assert message["trait_ids"] == ["m2-trait-role_a"]
         assert "role_id=role_a" in calls[0][0]
         assert "role_a trait" in calls[0][1]

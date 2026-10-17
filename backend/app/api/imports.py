@@ -296,18 +296,32 @@ def _source_path(source: Source) -> Path:
     """解析来源路径并确保仍位于配置的 Inbox 根目录内。"""
     root = Path(__file__).resolve().parents[3]
     inbox_path = (root / get_settings().inbox_path).resolve()
-    path = (root / source.metadata_json["relative_path"]).resolve()
+    inbox_relative_path = source.metadata_json.get("inbox_relative_path")
+    if isinstance(inbox_relative_path, str) and inbox_relative_path:
+        path = (inbox_path / inbox_relative_path).resolve()
+    else:
+        path = (root / source.metadata_json["relative_path"]).resolve()
     path.relative_to(inbox_path)
     return path
 
 
 def _register_archive(db: Session, root: Path, archive: Path) -> ImportSourceRead:
     """按内容摘要登记归档；重复文件返回既有来源，解析失败保留错误来源。"""
+    archive = archive.resolve()
+    inbox_path = (root / get_settings().inbox_path).resolve()
+    inbox_relative_path = archive.relative_to(inbox_path)
     digest = _sha256(archive)
     existing = _find_source_by_digest(db, digest)
     if existing is not None:
         return _source_read(existing)
-    metadata = {"sha256": digest, "relative_path": str(archive.relative_to(root))}
+    metadata = {
+        "sha256": digest,
+        "inbox_relative_path": str(inbox_relative_path),
+    }
+    try:
+        metadata["relative_path"] = str(archive.relative_to(root))
+    except ValueError:
+        pass
     try:
         count = len(parse_archive(archive))
         status = "pending_review"

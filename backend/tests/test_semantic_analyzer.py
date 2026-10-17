@@ -47,6 +47,14 @@ def _response(payload: dict[str, object]) -> bytes:
     ).encode("utf-8")
 
 
+def _fenced_response(payload: dict[str, object]) -> bytes:
+    content = f"```json\n{json.dumps(payload, ensure_ascii=False)}\n```"
+    return json.dumps(
+        {"choices": [{"message": {"content": content}}]},
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
 def _payload(*, evidence_ids=None, counter_evidence_ids=None):
     return {
         "schema_version": OUTPUT_SCHEMA_VERSION,
@@ -94,6 +102,30 @@ def test_provider_validates_structured_output_and_does_not_send_sender_labels():
     assert "test-only" not in str(captured["body"])
 
 
+def test_provider_accepts_json_code_fence_without_relaxing_schema():
+    analyzer = OpenAICompatibleSemanticAnalyzer(
+        _config(), approved_source=True, transport=lambda *_: _fenced_response(_payload())
+    )
+    output = analyzer.analyze("role_a", _messages())
+    assert output.status == "ready"
+
+
+def test_provider_classifies_outer_and_content_json_errors_without_logging_body():
+    outer = OpenAICompatibleSemanticAnalyzer(
+        _config(), approved_source=True, transport=lambda *_: b"not-json"
+    ).analyze("role_a", _messages())
+    assert outer.metadata["error_code"] == "response_json_decode"
+
+    content = OpenAICompatibleSemanticAnalyzer(
+        _config(),
+        approved_source=True,
+        transport=lambda *_: json.dumps(
+            {"choices": [{"message": {"content": "not-json"}}]}
+        ).encode(),
+    ).analyze("role_a", _messages())
+    assert content.metadata["error_code"] == "content_json_decode"
+
+
 def test_provider_rejects_unknown_or_cross_direction_evidence():
     def transport(endpoint, body, headers, timeout):
         return _response(_payload(evidence_ids=["not-in-input"]))
@@ -101,7 +133,9 @@ def test_provider_rejects_unknown_or_cross_direction_evidence():
     analyzer = OpenAICompatibleSemanticAnalyzer(
         _config(), approved_source=True, transport=transport
     )
-    assert analyzer.analyze("role_a", _messages()).status == "invalid_output"
+    output = analyzer.analyze("role_a", _messages())
+    assert output.status == "invalid_output"
+    assert output.metadata["error_code"] == "semantic_evidence_reference_invalid"
 
     def overlap_transport(endpoint, body, headers, timeout):
         return _response(_payload(evidence_ids=["a-1"], counter_evidence_ids=["a-1"]))
@@ -109,7 +143,9 @@ def test_provider_rejects_unknown_or_cross_direction_evidence():
     analyzer = OpenAICompatibleSemanticAnalyzer(
         _config(), approved_source=True, transport=overlap_transport
     )
-    assert analyzer.analyze("role_a", _messages()).status == "invalid_output"
+    output = analyzer.analyze("role_a", _messages())
+    assert output.status == "invalid_output"
+    assert output.metadata["error_code"] == "semantic_evidence_direction_invalid"
 
 
 def test_provider_retries_timeout_without_logging_or_fabricating_result():

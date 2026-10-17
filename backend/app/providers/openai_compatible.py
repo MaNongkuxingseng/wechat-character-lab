@@ -28,6 +28,9 @@ class LLMGeneration:
     model: str
     latency_ms: int
     trace_id: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class DialogueProviderError(RuntimeError):
@@ -72,6 +75,7 @@ class OpenAICompatibleLLMProvider:
             text = parsed["choices"][0]["message"]["content"]
             if not isinstance(text, str) or not text.strip():
                 raise DialogueProviderError("invalid_response")
+            prompt_tokens, completion_tokens, total_tokens = _parse_usage(parsed.get("usage"))
         except DialogueProviderError:
             raise
         except (UnicodeDecodeError, json.JSONDecodeError, KeyError, IndexError, TypeError):
@@ -88,6 +92,9 @@ class OpenAICompatibleLLMProvider:
             model=self.config.model or "",
             latency_ms=max(0, round((time.perf_counter() - started) * 1000)),
             trace_id=trace_id,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
         )
 
     def _request(self, body: bytes, trace_id: str) -> bytes:
@@ -122,3 +129,19 @@ class OpenAICompatibleLLMProvider:
             else:
                 code = "provider_rejected_request"
             raise DialogueProviderError(code) from None
+
+
+def _parse_usage(usage: object) -> tuple[int | None, int | None, int | None]:
+    if not isinstance(usage, dict):
+        return None, None, None
+
+    def token_count(name: str) -> int | None:
+        value = usage.get(name)
+        valid = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        return value if valid else None
+
+    return (
+        token_count("prompt_tokens"),
+        token_count("completion_tokens"),
+        token_count("total_tokens"),
+    )
