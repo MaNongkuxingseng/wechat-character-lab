@@ -60,7 +60,10 @@ def _normalize_row(row: Any, index: int) -> NormalizedMessage:
         raise ArchiveParseError(f"第 {index} 条消息不是对象")
     external_id = _first_value(row, "external_id", "message_id", "id") or str(index)
     speaker = _first_value(row, "speaker_label", "speaker", "sender", "from")
-    text = _first_value(row, "text", "content", "message")
+    text = next(
+        (row[key] for key in ("text", "content", "message") if key in row and row[key] is not None),
+        None,
+    )
     if not speaker or text is None:
         raise ArchiveParseError(f"第 {index} 条消息缺少 speaker 和 text 字段")
     sent_at_value = _first_value(row, "sent_at", "timestamp", "created_at")
@@ -73,16 +76,19 @@ def _normalize_row(row: Any, index: int) -> NormalizedMessage:
     metadata = row.get("metadata")
     if not isinstance(metadata, dict):
         metadata = {}
+    preserved_metadata = {
+        **metadata,
+        **{key: value for key, value in row.items() if key not in known_fields},
+        "source_row": index,
+    }
+    if isinstance(row.get("message_id"), str) and row["message_id"].strip():
+        preserved_metadata.setdefault("canonical_message_id", row["message_id"])
     return NormalizedMessage(
         external_id=str(external_id),
         speaker_label=str(speaker),
         text=str(text),
         sent_at=sent_at,
-        metadata={
-            **metadata,
-            **{key: value for key, value in row.items() if key not in known_fields},
-            "source_row": index,
-        },
+        metadata=preserved_metadata,
     )
 
 

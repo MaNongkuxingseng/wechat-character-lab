@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from app.ingestion.archive_parser import parse_archive
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
@@ -107,6 +109,16 @@ def test_zip_conversion_accepts_bom_without_changing_contract(tmp_path: Path):
 
     assert summary["messages"] == 2
     assert destination.exists()
+    parsed = parse_archive(destination)
+    assert {item.metadata["canonical_contract_version"] for item in parsed} == {
+        "wechat-canonical-v1"
+    }
+    assert {item.metadata["canonical_message_id"] for item in parsed} == {
+        "wechat:1:2",
+        "wechat:2:3",
+    }
+    assert all(item.metadata["is_ai_generated"] is None for item in parsed)
+    assert all(item.metadata["is_system"] is None for item in parsed)
 
 
 def test_invalid_json_still_raises_json_decode_error(tmp_path: Path, monkeypatch):

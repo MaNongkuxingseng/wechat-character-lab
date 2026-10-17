@@ -1,5 +1,13 @@
 # 现状发现与关键决策
 
+## 2026-10-17 P3-C 执行准备
+
+- 执行前 Git：分支 `feature/p2b-workspace-updates`，HEAD `b008fd6`，工作区干净并跟踪 `origin/feature/p2b-workspace-updates`。
+- 用户提供的 P3-C 附件要求复用现有模型与状态机，不提交/推送；仅在授权明确的单个真实文件上才可做隔离验证，否则不得伪造真实闭环结果。
+- 本地报告目录中存在 M1、M2、P3-B.1、P3-B.2.1 和 R1 报告；未发现 `reports/p3-a-profile-generation-mvp.md`。待逐文件核实其余依赖报告。
+- 当前在只读检查中看到 `security_flags.py` 与 `wechat_normalizer.py` 已保留三态安全值及来源输入；ZIP/Inbox 导入使用独立 `normalize_message()` 路径，完整字段保留能力仍待检查导入解析、metadata 写入与候选验证。
+- 现有工具 `task_plan.md`、`findings.md`、`progress.md` 属于仓库工作文件且内容已有历史记录，本阶段只追加，不覆盖历史。
+
 ## 本轮附件审计：已确认事实（2026-10-15）
 
 - 原始导出共 37,769 条，含 78 条 type_code=43 视频；data 无视频文件不等于聊天无视频。现有转换器未保留视频附件路径，需从本地媒体层提取并关联消息。
@@ -101,3 +109,31 @@
 - 在项目代码、文档和 `C:/Users/Administrator/.codex/skills`、`C:/Users/Administrator/.agents/skills` 中未发现 `Chat2Profile` 或 `ChatAnalysis.SKILL` 的本地源码、`SKILL.md` 或可执行入口。
 - 既有 `reports/preflight.md` 记录的候选公开来源为 `shuweiran/chat2profile` 与 `JularDepick/ChatAnalysis.SKILL`；本轮尚未读取其远程内容，版本、许可证实际条款和依赖均待公开仓库核验。
 - 本阶段不读取 `data/`，不运行消息提取、ASR、TTS 或画像任务；任何 README 能力描述在源码核验前均标记为未验证。
+
+## 2026-10-17 P3-C 源码发现（第一轮）
+
+- `candidate_persistence.persist_profile_result()` 的 `source_dataset_id`、`input_digest`、`analyzer_digest`、`message_mapping` 都由调用方传入；角色范围被加入输入摘要，但没有受控的调用入口计算数据集身份/摘要，也没有把 JSONL source ID 与 ImportedMessage 的实际来源身份核对。
+- 当前映射校验覆盖 ImportedMessage 存在、角色一致、其 Source 为 approved；但没有验证该 ImportedMessage 来自与 `source_dataset_id` 对应的已批准 Source，也没有比对 JSONL 消息来源 ID/内容摘要/时间戳与映射目标，因此映射可能错误但“合法”。
+- `jsonl_analyzer.py` 中 Observable 和 Fake Semantic 信号都给 `confidence=None`；FakeSemantic 明确是确定性词项规则，不是语义模型。`admission.py` 是否拒绝 null confidence 及其具体理由待下一轮检查。
+- `synthetic_adapter._is_eligible_text()` 只验证显式 security flag 为 bool、拒绝 True；没有重算完整 `security_flag_sources` 冲突关系。JSONL 服务另有 `_validate_security_provenance()`，需核实其输入来源和 ZIP/Inbox 映射的兼容性。
+- 报告存在 `reports/p3-a-profile-generation-mvp.md`、M1/M2、P3-B.1、P3-B.2.1、R1、P2 工具审计；报告不能替代本轮源码实测。
+- 没有本轮显式指定真实样本路径/范围，且不应从 `data/` 目录发现样本；本轮将先完成纯合成与隔离测试。若后续仍无用户明确选定/授权文件，则真实样本生命周期应记为阻断，不能伪称完成。
+- `convert(... --format jsonl)` 调用 `normalize_payload()`，而 ZIP `convert()` 独立组装通用 `messages.json`，仅保留 raw `type_code` 等零散 metadata；它没有携带 canonical message ID、canonical message type 或安全三态/`security_flag_inputs`/来源审计。`archive_parser` 会把非 schema 字段拷入 `NormalizedMessage.metadata`，是可用的最小兼容承载点；规范化 JSONL 走 ZIP JSONL importer 时，`message_id` 当前会用作 external ID，但因属于 known field 而从 metadata 丢失。
+- `persist_profile_result()` 低层映射只校验目标消息存在、role 与 Source approved，未核对 `message.source_id == source_dataset_id`；修复方向是新增只接受已批准 `Source.id` 的受控源分析入口，内部构造 canonical rows、dataset/input/analyzer 摘要和唯一映射，并为低层写入增加来源一致性校验。
+- 正式准入明确拒绝 `confidence=None`（`confidence_required_for_formal_profile`）。现行候选审核请求没有人工置信度字段，导致 Observable 候选不能经正常审核准入；拟以 nullable reviewer-supplied confidence 与 review event before/after 字段审计，强校验仅接受数值 0..1，必须附审核说明，绝不覆盖分析器原值或自动填充。
+- 默认 `analyze_normalized_messages()` 会运行 FakeSemantic 词项规则，但该实现只用于测试。受控生产入口将明确只启用 Observable + disabled LLM，保留可解释统计和外部关闭状态，不把 Fake 输出混作实际语义候选。
+- `backend/tests/test_imports.py` 的两个测试会向仓库 `data/inbox` 写 ZIP、调用全目录 Inbox 扫描并删除该文件；按 P3-C 边界跳过，不执行。可在 `tmp_path` + 隔离 SQLite 对 `convert -> parse_archive -> Source/ImportedMessage -> analyze/persist` 做合成链路验证。
+- 已新增 `backend/app/profiles/source_contract.py`：仅从 canonical records 计算 dataset/input digest，分析器 digest 固定纳入版本/运行状态、pipeline contract 和 Observable sample thresholds；来源持久化入口要求 approved `Source.id`，从已审核 `ImportedMessage` 的 explicit `speaker_role_id` 产生角色映射，匹配需核验 source、canonical ID、label/role、timestamp、canonical type、安全来源一致性和内容回指。
+- 已新增受控 API `POST /api/candidate/sources/{source_id}/analyze`，只针对选定已批准 Source 运行 Observable + disabled LLM；输出脱敏统计，不回传正文。候选审核、准入仍走原有 API。
+- ZIP 转换新增 `wechat-canonical-v1` 元数据并保留历史 external_id 格式；安全 flag 来源信息会通过 `NormalizedMessage.metadata -> ImportedMessage.metadata_json` 保存。普通文本 type_code 不被推断为安全 False，缺失证据仍 unknown。
+- 准入置信度问题经隔离合成端到端复现并修正：CandidateItem 的原始 `confidence` 仍可为 NULL；新增 `reviewer_confidence`，严格要求显式审核、有效数值和审核说明，事件审计 before/after，准入只在此值存在时映射为正式非空 confidence。新增正式特征 `confidence_source`，区分可解释测量与人工评级。
+- 初次 migration 探试 `op.create_check_constraint` 在 SQLite 失败（SQLite 不支持直接 ALTER CHECK）；已改成新增列时带 inline CHECK 的原地 ALTER，避免 batch-recreate 影响证据子表。迁移升级基础测试复通过，仍需增加“存在候选/evidence 数据时 upgrade/downgrade 保留”专测。
+- 定向验证新增 `test_p3c_source_contract.py`，覆盖 JSONL/ZIP canonical 字段等价、来源映射、幂等、角色不匹配拒绝、未批准来源拒绝及候选审核→准入 draft→正式审核发布→consumer context 的合成闭环。
+- 续接复核：当前分支 `feature/p2b-workspace-updates`，HEAD 与 `origin/feature/p2b-workspace-updates` 同为 `b008fd6e1b8e9f48fcc514c181e368c4ff40a953`；已有 P3-C 工作区修改共存于当前分支，不做清理、暂存或提交。
+- `backend/tests/test_imports.py` 会创建仓库 `data/inbox/` 下的 ZIP，调用 inbox 全目录扫描并在 finally 中删除该文件；本轮按不扫描真实数据边界跳过，改以 tmp_path 合成转换测试覆盖解析逻辑。
+- 本轮未发现用户明确选定且授权的真实导出文件路径；不枚举数据目录，不执行真实样本分析、审核或发布。
+- 受控 Analyzer 入口实际构造 `ObservableAnalyzer()` 与 `DisabledLLMSemanticAnalyzer()`；后者只回报 `provider_disabled`，不会联网。`FakeSemanticAnalyzer` 明确标注为确定性词项规则，不代表语义理解。
+- `backend/tests/test_migrations.py` 通过 `tmp_path` 文件 SQLite，Alembic 从初始 revision 升至 head；候选来源 ID 与正式 ImportedMessage 外键边界有专项检查。该测试没有覆盖在 0005 已存在候选记录上的 0006/0007 数据保留/降级场景，本报告将列为未覆盖项。
+- 首次 Ruff 检查发现 `test_p3c_source_contract.py` 存在多余空行，按 `ruff check --diff` 修正；后续定向 Ruff 与 `ruff check backend scripts/convert_wechatauto_export.py` 通过。
+- 定向 P3-C、转换器、M1 profile engine 与 migration 测试合计 17 项通过；全受限后端回归 `backend/tests --ignore=backend/tests/test_imports.py` 为 116 项通过。Starlette/httpx、pytest-asyncio、Alembic 存在 6 条弃用告警。
+- 前端 `pnpm run typecheck` 和 `pnpm run build` 均通过；Vite 构建生成的 `frontend/dist` 未出现在 Git 状态中。

@@ -18,7 +18,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
-from app.ingestion.wechat_normalizer import normalize_payload  # noqa: E402
+from app.ingestion.wechat_normalizer import (
+    CANONICAL_CONTRACT_VERSION,
+    normalize_payload,
+)
 
 
 def convert(source: Path, destination: Path) -> dict[str, Any]:
@@ -31,16 +34,21 @@ def convert(source: Path, destination: Path) -> dict[str, Any]:
     if not isinstance(messages, list) or not messages:
         raise ValueError("原始导出没有消息记录")
 
-    self_name = str(payload.get("nick_name") or "").strip()
+    canonical_messages, canonical_summary = normalize_payload(
+        payload, source_file=source.name
+    )
+    if canonical_summary["error_count"] or len(canonical_messages) != len(messages):
+        raise ValueError("原始导出无法完整转换为 canonical 消息记录")
+
     rows: list[dict[str, Any]] = []
     external_ids: set[str] = set()
     speaker_counts: Counter[str] = Counter()
     message_type_counts: Counter[str] = Counter()
     timestamps: list[datetime] = []
 
-    for index, message in enumerate(messages, start=1):
+    for index, (message, canonical) in enumerate(zip(messages, canonical_messages), start=1):
         if not isinstance(message, dict):
-            raise ValueError(f"第 {index} 条记录不是对象")
+            raise TypeError(f"第 {index} 条记录不是对象")
         try:
             sent_at = datetime.fromtimestamp(
                 int(message["create_time"]), tz=timezone.utc  # noqa: UP017
@@ -48,26 +56,25 @@ def convert(source: Path, destination: Path) -> dict[str, Any]:
         except (KeyError, TypeError, ValueError, OSError) as exc:
             raise ValueError(f"第 {index} 条记录的时间戳无效") from exc
 
-        speaker = str(message.get("sender_name") or "").strip()
-        if self_name and speaker == self_name:
-            speaker = "我"
+        speaker = canonical["sender"]
         text = message.get("content")
         if not speaker or not isinstance(text, str):
             raise ValueError(f"第 {index} 条记录缺少发言人或文本内容")
 
-        kind = message.get("type")
+        kind = canonical["message_type"]
         content_was_empty = not text.strip()
         if content_was_empty:
-            # 空正文仍代表一条历史消息；用类型占位符满足导入契约，原文在源 JSON 中保留。
-            text = f"[{kind or '空消息'}]"
+            # 保留空正文语义；画像安全门禁会排除它，不用占位符伪装文本。
+            text = ""
 
         # 多分片数据库的 local_id 可能重复，加入行序号确保来源内 ID 唯一。
-        external_id = "wechat:{sort_seq}:{local_id}:{server_id}:{index}".format(
+        legacy_external_id = "wechat:{sort_seq}:{local_id}:{server_id}:{index}".format(
             sort_seq=message.get("sort_seq"),
             local_id=message.get("local_id"),
             server_id=message.get("server_id"),
             index=index,
         )
+        external_id = legacy_external_id
         if external_id in external_ids:
             raise ValueError(f"第 {index} 条记录产生重复 external_id")
         external_ids.add(external_id)
@@ -79,12 +86,28 @@ def convert(source: Path, destination: Path) -> dict[str, Any]:
                 "text": text,
                 "sent_at": sent_at.isoformat().replace("+00:00", "Z"),
                 "message_type": kind,
-                "type_code": message.get("type_code"),
+                "type_code": canonical["source_type_code"],
                 "sender_id": message.get("sender_id"),
                 "server_id": message.get("server_id"),
                 "local_id": message.get("local_id"),
                 "sort_seq": message.get("sort_seq"),
                 "content_was_empty": content_was_empty,
+                "metadata": {
+                    "canonical_contract_version": CANONICAL_CONTRACT_VERSION,
+                    "canonical_message_id": canonical["message_id"],
+                    "canonical_message_id_status": canonical["message_id_status"],
+                    "source_message_ref": canonical["source_message_ref"],
+                    "source_local_id": canonical["source_local_id"],
+                    "source_server_id": canonical["source_server_id"],
+                    "source_type_code": canonical["source_type_code"],
+                    "message_type": canonical["message_type"],
+                    "content_status": canonical["content_status"],
+                    "timestamp_status": canonical["timestamp_status"],
+                    "is_ai_generated": canonical["is_ai_generated"],
+                    "is_system": canonical["is_system"],
+                    "security_flag_sources": canonical["security_flag_sources"],
+                    "security_flag_inputs": canonical["security_flag_inputs"],
+                },
             }
         )
         speaker_counts[speaker] += 1

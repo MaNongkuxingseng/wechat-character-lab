@@ -11,15 +11,47 @@ from app.models import (
     ProfileCandidateUnmatchedEvidence,
 )
 from app.profiles.admission import AdmissionError, admit_candidate_item
+from app.profiles.candidate_persistence import CandidatePersistenceError
 from app.profiles.candidate_review import ReviewConflictError, review_candidate_item
 from app.profiles.consumer import build_role_context
+from app.profiles.source_contract import SourceContractError, analyze_and_persist_approved_source
 from app.schemas.candidates import (
     CandidateAdmissionResponse,
     CandidateReviewRequest,
     CandidateReviewResponse,
+    CandidateSourceAnalysisResponse,
 )
 
 router = APIRouter(prefix="/api/candidate", tags=["candidate-profiles"])
+
+
+@router.post("/sources/{source_id}/analyze", response_model=CandidateSourceAnalysisResponse)
+def analyze_approved_source(
+    source_id: str, db: Session = Depends(get_db)
+) -> CandidateSourceAnalysisResponse:
+    """Analyze one explicitly approved source with local Observable analysis only."""
+    try:
+        result = analyze_and_persist_approved_source(db, source_id)
+    except SourceContractError as exc:
+        code = str(exc)
+        status_code = 404 if code == "source_not_found" else 409
+        raise HTTPException(status_code=status_code, detail={"code": code}) from exc
+    except CandidatePersistenceError as exc:
+        raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+    persisted = result.persistence
+    return CandidateSourceAnalysisResponse(
+        source_id=source_id,
+        snapshot_id=persisted.snapshot_id,
+        created=persisted.created,
+        status=result.analysis_status,
+        role_statuses=dict(result.role_statuses),
+        sample_counts=dict(result.sample_counts),
+        candidate_count=persisted.candidate_count,
+        evidence_count=persisted.evidence_count,
+        mapping_count=result.mapping_count,
+        mapping_issue_count=result.mapping_issue_count,
+        unmatched_count=persisted.unmatched_count,
+    )
 
 
 @router.get("/context/{role_id}")
@@ -58,6 +90,7 @@ def get_candidate_snapshot(snapshot_id: str, db: Session = Depends(get_db)) -> d
                 "claim": item.claim,
                 "cognitive_state": item.cognitive_state,
                 "confidence": item.confidence,
+                "reviewer_confidence": item.reviewer_confidence,
                 "conflict_status": item.conflict_status,
                 "review_status": item.review_status,
                 "evidence": _evidence(db, item.id),
@@ -100,6 +133,7 @@ def review_candidate(
             note=payload.note,
             decision_reason_code=payload.decision_reason_code,
             expected_from_status=payload.expected_from_status,
+            reviewer_confidence=payload.reviewer_confidence,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail={"code": str(exc)}) from exc
@@ -113,6 +147,8 @@ def review_candidate(
         candidate_id=item.id,
         review_status=item.review_status,
         reviewer_note=item.reviewer_note,
+        confidence=item.confidence,
+        reviewer_confidence=item.reviewer_confidence,
     )
 
 
@@ -159,6 +195,8 @@ def _review_events(db: Session, candidate_id: str) -> list[dict[str, object]]:
             "id": row.id,
             "from_status": row.from_status,
             "to_status": row.to_status,
+            "reviewer_confidence_before": row.reviewer_confidence_before,
+            "reviewer_confidence_after": row.reviewer_confidence_after,
             "reviewer_id": row.reviewer_id,
             "note": row.note,
             "decision_reason_code": row.decision_reason_code,

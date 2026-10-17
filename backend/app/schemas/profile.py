@@ -24,8 +24,12 @@ class TraitRead(BaseModel):
     confidence: float = Field(
         ge=0,
         le=1,
-        description="当前统计分析器的样本支撑度，不代表人格判断为真的概率。",
+        description=(
+            "数值来源见 confidence_source；既可能是可解释的样本测量，也可能是有说明的人工评级，"
+            "不代表人格判断为真的概率。"
+        ),
     )
+    confidence_source: Literal["analyzer_measurement", "reviewer_assessed"]
     context: str | None
     review_status: Literal["pending", "accepted", "rejected"]
     reviewer_note: str | None

@@ -40,7 +40,10 @@ def admit_candidate_item(db: Session, candidate_id: str) -> ProfileVersion:
         raise AdmissionError("candidate_must_be_accepted")
     if item.cognitive_state == "unknown":
         raise AdmissionError("unknown_cognitive_state")
-    if item.confidence is None:
+    effective_confidence = (
+        item.reviewer_confidence if item.reviewer_confidence is not None else item.confidence
+    )
+    if effective_confidence is None:
         raise AdmissionError("confidence_required_for_formal_profile")
     if item.conflict_status != "none":
         raise AdmissionError("conflicting_evidence_requires_review")
@@ -95,7 +98,12 @@ def admit_candidate_item(db: Session, candidate_id: str) -> ProfileVersion:
         category=item.category,
         trait_key=item.profile_item_id,
         description=item.claim,
-        confidence=item.confidence,
+        confidence=effective_confidence,
+        confidence_source=(
+            "reviewer_assessed"
+            if item.reviewer_confidence is not None
+            else "analyzer_measurement"
+        ),
         cognitive_state=item.cognitive_state,
         inference_basis=item.inference_basis,
         conflict_status=item.conflict_status,

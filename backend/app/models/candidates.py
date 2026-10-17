@@ -68,6 +68,11 @@ class ProfileCandidateItem(Base):
             name="ck_candidate_item_confidence",
         ),
         CheckConstraint(
+            "reviewer_confidence IS NULL OR "
+            "(reviewer_confidence >= 0 AND reviewer_confidence <= 1)",
+            name="ck_candidate_item_reviewer_confidence",
+        ),
+        CheckConstraint(
             "review_status IN ('pending', 'accepted', 'rejected', 'needs_review')",
             name="ck_candidate_item_review_status",
         ),
@@ -92,6 +97,7 @@ class ProfileCandidateItem(Base):
     category: Mapped[str] = mapped_column(String(40), nullable=False)
     claim: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reviewer_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     cognitive_state: Mapped[str] = mapped_column(String(24), nullable=False, default="unknown")
     inference_basis: Mapped[str | None] = mapped_column(Text, nullable=True)
     conflict_status: Mapped[str] = mapped_column(String(24), nullable=False, default="none")
@@ -176,6 +182,16 @@ class ProfileCandidateReviewEvent(Base):
             "('pending', 'accepted', 'rejected', 'needs_review')",
             name="ck_candidate_review_event_from_status",
         ),
+        CheckConstraint(
+            "reviewer_confidence_before IS NULL OR "
+            "(reviewer_confidence_before >= 0 AND reviewer_confidence_before <= 1)",
+            name="ck_candidate_review_event_reviewer_confidence_before",
+        ),
+        CheckConstraint(
+            "reviewer_confidence_after IS NULL OR "
+            "(reviewer_confidence_after >= 0 AND reviewer_confidence_after <= 1)",
+            name="ck_candidate_review_event_reviewer_confidence_after",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -189,6 +205,8 @@ class ProfileCandidateReviewEvent(Base):
     reviewer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     decision_reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reviewer_confidence_before: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reviewer_confidence_after: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

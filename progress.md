@@ -1,5 +1,12 @@
 # 开发进度记录
 
+## 2026-10-17：P3-C 执行启动
+
+- 已完整读取 P3-C 用户计划附件、仓库 `AGENTS.md` 和 `README.md`；已检查现有计划/进度/发现文件。
+- 初始状态：`feature/p2b-workspace-updates`，HEAD `b008fd6`，与 origin 跟踪分支一致，工作区干净。
+- 已开始检查 `security_flags.py`、`wechat_normalizer.py`、JSONL 服务、候选 API、ZIP/Inbox API；输出量过大导致个别源码片段被截断，后续将按文件分批检查。
+- 严格不访问/扫描真实数据目录；当前未运行测试、未修改生产代码、未提交/推送。
+
 ## 2026-10-15：恢复执行与修复验收
 
 - 实际执行 Get-Location 与 git status --short：PowerShell 可用；Git 因 PATH 缺失改用 D:/Program Files/Git/cmd/git.exe，初始工作区干净。三份计划文件已读取；项目/上级无 AGENTS.md，全局文件为空。
@@ -135,3 +142,18 @@
 - 合成回归、受限后端回归、Ruff、前端 typecheck/build 均在本轮复核通过；未运行 `backend/tests/test_imports.py`。
 - 真实样本仅选择一个明确文件，转换得到 37,769 条记录、0 个转换错误和 0 个 ID 碰撞；隔离窗口中的 40 条文本消息安全标记均为 unknown，正式画像生成按安全门禁阻断，未伪造候选或发布结果。
 - 隔离浏览器中已验证页面连接、A/B 画像 readiness、Mock 标识、A/B 轮流生成、暂停、用户插话和继续；停止请求最终进入 `completed`，但浏览器时序与自然轮次完成存在竞态，停止专项以自动化测试为确定证据。
+
+## 2026-10-17：P3-C 执行续接
+
+- 执行前分支/HEAD：`feature/p2b-workspace-updates` / `b008fd6e1b8e9f48fcc514c181e368c4ff40a953`，与远端跟踪分支一致；工作区包含已有 P3-C 代码、测试和规划文件改动，均保留。
+- 已阅读 P3-C 附件及当前 P3-C 规划状态；初始 `git diff --check` 通过。
+- 检查 `backend/tests/test_imports.py` 后确认它会写入、扫描和删除仓库 `data/inbox/` 下的文件，因此不运行。
+- 未指定真实样本路径/授权证明；真实导入与候选生命周期留待有明确单文件选择和隔离条件后执行。本轮只验证合成输入与隔离测试数据库。
+- 待办：重跑迁移/P3-C/M1 定向测试、受限后端回归、Ruff、前端 typecheck/build、diff 检查，并生成独立的 P3-C 交付报告；不提交/推送。
+- 定向结果：`test_p3c_source_contract.py`、`test_converter_bom.py`、`test_m1_profile_engine.py`、`test_migrations.py` 共 17 passed；Ruff 定向检查经修复 import/空行格式后通过。
+- 受限回归：`backend\.venv\Scripts\python.exe -m pytest -q backend\tests --ignore=backend\tests\test_imports.py`，116 passed, 6 warnings；迁移测试使用临时文件 SQLite。
+- 静态检查：`backend\.venv\Scripts\ruff.exe check backend scripts/convert_wechatauto_export.py` 通过；前端 `pnpm run typecheck`、`pnpm run build` 均通过。
+- 风险：定向迁移测试虽在隔离 SQLite 里升级至 head，但未覆盖已有 0005 候选记录经 0006/0007 升级和降级后的数据保留；需在报告中明确。
+- 最终核对：`git diff --check` 退出码 0；分支/HEAD 未变化，20 个已跟踪文件修改、5 个未跟踪文件，包含 P3-C 报告；无 stage/commit/push。Git 仅提示部分文件后续写入时 LF 会被转换为 CRLF。
+- 对未跟踪报告单独运行行尾空白扫描时发现并删除标题作者行空格；最终复查无尾随空白，`git diff --check` 退出码 0。
+- P3-C 报告已完成，列出真实样本未执行、Inbox HTTP 路径未由自动测试覆盖、迁移已有候选数据回滚路径缺少专项测试以及消息删除 helper 尚无生产调用方等风险。任务停止等待人工 Review。

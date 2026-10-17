@@ -23,6 +23,7 @@ TYPE_NAMES = {
     47: "emoji",
     48: "location",
 }
+CANONICAL_CONTRACT_VERSION = "wechat-canonical-v1"
 _SECURITY_PROVENANCE_FIELDS = (
     "type",
     "message_type",
@@ -111,6 +112,7 @@ def _normalize_message(
     raw_source_metadata = message.get("source_metadata")
     security_flags = derive_security_flags(message)
     record = {
+        "canonical_contract_version": CANONICAL_CONTRACT_VERSION,
         "message_id": base_id,
         "message_id_status": id_status,
         "id_collision": False,

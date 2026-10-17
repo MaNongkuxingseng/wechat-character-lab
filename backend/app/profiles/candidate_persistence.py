@@ -37,7 +37,7 @@ class CandidatePersistenceError(ValueError):
     """Raised when a candidate cannot be persisted without losing provenance."""
 
 
-def persist_profile_result(
+def _persist_profile_result(
     db: Session,
     result: JsonlProfileResult,
     *,
@@ -45,6 +45,8 @@ def persist_profile_result(
     input_digest: str,
     analyzer_digest: str,
     message_mapping: Mapping[str, str | None],
+    mapping_reasons: Mapping[str, str] | None = None,
+    trusted_source_id: str | None = None,
 ) -> CandidatePersistenceResult:
     """Persist one JSONL result atomically and return an idempotent snapshot result.
 
@@ -52,6 +54,12 @@ def persist_profile_result(
     ``ImportedMessage.id`` values. Missing mappings remain candidate evidence with an
     ``unmatched`` status; mappings to a missing or wrong-role message are ``invalid``.
     """
+    if trusted_source_id is not None and source_dataset_id != trusted_source_id:
+        raise CandidatePersistenceError("source_dataset_identity_mismatch")
+    if trusted_source_id is not None:
+        source = db.get(Source, trusted_source_id)
+        if source is None or source.status != "approved":
+            raise CandidatePersistenceError("source_not_approved")
     role_scope = sorted({item.candidate.subject_id for item in result.candidates})
     role_scope = sorted(set(result.role_statuses) | set(role_scope))
     scoped_input_digest = hashlib.sha256(
@@ -151,7 +159,9 @@ def persist_profile_result(
                             direction=direction,
                             source_dataset_id=source_dataset_id,
                             source_message_id=source_message_id,
-                            imported_id=message_mapping.get(source_message_id),
+                             imported_id=message_mapping.get(source_message_id),
+                             mapping_reason=(mapping_reasons or {}).get(source_message_id),
+                             trusted_source_id=trusted_source_id,
                         )
                     )
                     evidence_count += 1
@@ -204,8 +214,32 @@ def _build_evidence(
     source_dataset_id: str,
     source_message_id: str,
     imported_id: str | None,
+    mapping_reason: str | None = None,
+    trusted_source_id: str | None = None,
 ) -> ProfileCandidateEvidence:
     if not imported_id:
+        if mapping_reason:
+            if mapping_reason == "missing_imported_message":
+                return ProfileCandidateEvidence(
+                    id=str(uuid4()),
+                    candidate_id=item.id,
+                    direction=direction,
+                    source_dataset_id=source_dataset_id,
+                    source_message_id=source_message_id,
+                    rationale="canonical source message has no imported database mapping",
+                    match_status="unmatched",
+                    invalid_reason=mapping_reason,
+                )
+            return ProfileCandidateEvidence(
+                id=str(uuid4()),
+                candidate_id=item.id,
+                direction=direction,
+                source_dataset_id=source_dataset_id,
+                source_message_id=source_message_id,
+                rationale="controlled source mapping did not produce a valid formal reference",
+                match_status="invalid",
+                invalid_reason=mapping_reason,
+            )
         return ProfileCandidateEvidence(
             id=str(uuid4()),
             candidate_id=item.id,
@@ -229,6 +263,30 @@ def _build_evidence(
             match_status="invalid",
             invalid_reason="imported_message_not_found",
         )
+    if trusted_source_id is not None and message.source_id != trusted_source_id:
+        return ProfileCandidateEvidence(
+            id=str(uuid4()),
+            candidate_id=item.id,
+            direction=direction,
+            source_dataset_id=source_dataset_id,
+            source_message_id=source_message_id,
+            rationale="mapped formal message belongs to another source",
+            match_status="invalid",
+            invalid_reason="source_mismatch",
+        )
+    if trusted_source_id is not None:
+        metadata = message.metadata_json if isinstance(message.metadata_json, dict) else {}
+        if metadata.get("canonical_message_id") != source_message_id:
+            return ProfileCandidateEvidence(
+                id=str(uuid4()),
+                candidate_id=item.id,
+                direction=direction,
+                source_dataset_id=source_dataset_id,
+                source_message_id=source_message_id,
+                rationale="mapped formal message does not declare the same canonical source ID",
+                match_status="invalid",
+                invalid_reason="canonical_source_id_mismatch",
+            )
     if message.speaker_role_id != item.subject_id:
         return ProfileCandidateEvidence(
             id=str(uuid4()),
@@ -278,3 +336,8 @@ def _parse_datetime(value: str | None) -> datetime | None:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise CandidatePersistenceError("observed_at must include timezone")
     return parsed
+
+
+# Kept for existing offline callers.  Production source lifecycles must use
+# ``source_contract.persist_canonical_profile_result`` with a trusted Source.
+persist_profile_result = _persist_profile_result

@@ -1,5 +1,24 @@
 # 微信角色实验室开发路线与进度
 
+## 2026-10-17：P3-C 真实来源契约与候选画像闭环
+
+1. [完成] 核实分支、HEAD、远端跟踪与 P3-C 现有差异；读取计划及主要代码/报告，保留所有工作区改动。
+2. [完成] 追踪并补齐 JSONL 与 ZIP/Inbox canonical 字段契约、来源标记和合成等价测试。
+3. [完成] 增加受控来源身份、消息映射、候选持久化/审核/准入服务边界和闭环测试。
+4. [完成] 隔离 SQLite 定向 migration / P3-C / M1 测试和合成闭环通过；真实样本未获明确选择/授权，未访问数据目录。
+5. [完成] 复核实际 Analyzer：受控入口使用 Observable + Disabled LLM；Fake Semantic 仅规则测试，不是语义模型。
+6. [完成] 受限后端回归、Ruff、前端 typecheck/build、最终 diff 检查通过；已新增报告并更新进度；不提交/推送。
+
+错误记录：首次 Ruff 定向检查仅发现新测试文件的一个空行格式问题；按 `ruff check --diff` 指示修正，之后定向 Ruff 与 `ruff check backend scripts/convert_wechatauto_export.py` 均通过。
+
+附加检查记录：未跟踪报告的独立尾随空白检查发现标题作者行带 Markdown 硬换行空格，已删除；此问题不影响 `git diff --check` 的退出码。
+
+最终状态：HEAD 保持 `b008fd6e1b8e9f48fcc514c181e368c4ff40a953`，20 个已跟踪文件有修改、5 个新文件未跟踪；分支仍与 origin 跟踪一致。`git diff --check` 退出码 0；未暂存、未提交、未推送。
+
+约束：保留所有现有工作区文件；不访问 `data/`、`data/inbox/`，不运行 `test_imports.py`，不连真实数据库、不外发数据、不安装依赖。
+
+本次续接（2026-10-17）：执行前 HEAD 为 `b008fd6e1b8e9f48fcc514c181e368c4ff40a953`；工作区已有 P3-C 相关修改与未跟踪文件，必须原样保留。`backend/tests/test_imports.py` 会写入并扫描仓库 `data/inbox/`，因此明确跳过。尚未开始本轮待执行验证。
+
 ## 当前任务：附件 V1.0 审计与视频提取（2026-10-15）
 
 1. [进行中] P0 对照附件审计现有消息、画像、生成、媒体、依赖和测试，输出 docs/current_architecture.md。

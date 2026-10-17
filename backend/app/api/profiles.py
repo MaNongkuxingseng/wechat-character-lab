@@ -159,6 +159,7 @@ def _trait_read(db: Session, version: ProfileVersion, trait: ProfileTrait) -> Tr
         key=trait.trait_key,
         description=trait.description,
         confidence=trait.confidence,
+        confidence_source=trait.confidence_source,
         context=trait.context,
         review_status=trait.review_status,
         reviewer_note=trait.reviewer_note,

@@ -25,6 +25,7 @@ class ProfileFeatureContext:
     claim: str
     cognitive_state: str
     confidence: float | None
+    confidence_source: str
     evidence_refs: tuple[dict[str, object], ...]
 
 
@@ -122,6 +123,7 @@ def build_role_context(
                     claim=trait.description,
                     cognitive_state=trait.cognitive_state,
                     confidence=trait.confidence,
+                    confidence_source=trait.confidence_source,
                     evidence_refs=evidence_refs,
                 )
             )

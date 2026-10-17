@@ -53,6 +53,10 @@ class ProfileTrait(Base):
             "conflict_status IN ('none', 'conflict', 'unresolved')",
             name="ck_profile_trait_conflict_status",
         ),
+        CheckConstraint(
+            "confidence_source IN ('analyzer_measurement', 'reviewer_assessed')",
+            name="ck_profile_trait_confidence_source",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -63,6 +67,12 @@ class ProfileTrait(Base):
     trait_key: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    confidence_source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="analyzer_measurement",
+        server_default="analyzer_measurement",
+    )
     cognitive_state: Mapped[str] = mapped_column(String(24), nullable=False, default="unknown")
     inference_basis: Mapped[str | None] = mapped_column(Text, nullable=True)
     conflict_status: Mapped[str] = mapped_column(String(24), nullable=False, default="none")

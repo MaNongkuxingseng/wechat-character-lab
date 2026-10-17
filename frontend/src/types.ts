@@ -36,6 +36,7 @@ export interface ProfileTrait {
   key: string;
   description: string;
   confidence: number;
+  confidence_source: "analyzer_measurement" | "reviewer_assessed";
   context: string | null;
   review_status: "pending" | "accepted" | "rejected";
   reviewer_note: string | null;

@@ -52,6 +52,7 @@ def create_draft(db: Session, role_id: str) -> ProfileVersion:
             trait_key=draft.key,
             description=draft.description,
             confidence=draft.confidence,
+            confidence_source="analyzer_measurement",
             cognitive_state="evidence_backed",
             inference_basis="deterministic observable analyzer output",
             conflict_status="none",

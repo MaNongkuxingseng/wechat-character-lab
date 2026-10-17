@@ -1,4 +1,3 @@
-from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -11,7 +10,6 @@ from app.models import (
     ProfileCandidateEvidence,
     ProfileCandidateItem,
     ProfileCandidateSnapshot,
-    ProfileCandidateUnmatchedEvidence,
     ProfileTrait,
     Role,
     Source,
@@ -19,17 +17,17 @@ from app.models import (
 from app.profiles.admission import AdmissionError, admit_candidate_item
 from app.profiles.candidate_persistence import (
     invalidate_imported_message_evidence,
-    persist_profile_result,
 )
 from app.profiles.candidate_review import review_candidate_item
 from app.profiles.consumer import build_role_context
-from app.profiles.jsonl_service import UnmatchedEvidence, analyze_normalized_messages
+from app.profiles.source_contract import analyze_and_persist_jsonl
 
 
 def _row(message_id: str, content: str) -> dict[str, object]:
     flags = {"is_ai_generated": False, "is_system": False}
     security_sources = derive_security_flags(flags).source_map()
     return {
+        "canonical_contract_version": "wechat-canonical-v1",
         "message_id": message_id,
         "sender": "synthetic-a",
         "message_type": "text",
@@ -75,9 +73,16 @@ def _seed(db):
                 text=str(row["content"]),
                 sent_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
                 metadata_json={
+                    "canonical_contract_version": "wechat-canonical-v1",
+                    "canonical_message_id": row["message_id"],
+                    "canonical_timestamp": row["timestamp"],
                     "message_type": "text",
+                    "content_status": "present",
+                    "timestamp_status": "parsed_utc",
                     "is_ai_generated": False,
                     "is_system": False,
+                    "security_flag_sources": row["security_flag_sources"],
+                    "security_flag_inputs": row["security_flag_inputs"],
                 },
             )
         )
@@ -88,47 +93,40 @@ def _seed(db):
 def test_candidate_persistence_is_idempotent_and_keeps_unmatched_evidence(test_session_factory):
     db = test_session_factory()
     rows = _seed(db)
-    result = analyze_normalized_messages(rows, sender_role_map={"synthetic-a": "role_a"})
-    result = replace(
-        result,
-        unmatched_evidence=(UnmatchedEvidence("signal-1", "missing-message", "not_found"),),
+    missing_import = db.scalar(
+        select(ImportedMessage).where(ImportedMessage.external_id == rows[0]["message_id"])
     )
-    persisted = persist_profile_result(
+    assert missing_import is not None
+    db.delete(missing_import)
+    db.commit()
+    persisted = analyze_and_persist_jsonl(
         db,
-        result,
-        source_dataset_id="synthetic-dataset",
-        input_digest="a" * 64,
-        analyzer_digest="b" * 64,
-        message_mapping={"m-m-0": "db-m-0"},
+        rows,
+        sender_role_map={"synthetic-a": "role_a"},
+        source_id="source-a",
     )
-    retry = persist_profile_result(
+    retry = analyze_and_persist_jsonl(
         db,
-        result,
-        source_dataset_id="synthetic-dataset",
-        input_digest="a" * 64,
-        analyzer_digest="b" * 64,
-        message_mapping={},
+        rows,
+        sender_role_map={"synthetic-a": "role_a"},
+        source_id="source-a",
     )
-    assert persisted.created is True
-    assert retry.created is False
+    assert persisted.persistence.created is True
+    assert retry.persistence.created is False
     evidence = list(db.scalars(select(ProfileCandidateEvidence)))
     assert evidence
     assert any(item.match_status == "unmatched" for item in evidence)
     assert {item.source_message_id for item in evidence} <= {row["message_id"] for row in rows}
-    assert list(db.scalars(select(ProfileCandidateUnmatchedEvidence)))
 
 
 def test_review_admission_and_consumer_context_are_separate(test_session_factory):
     db = test_session_factory()
     rows = _seed(db)
-    result = analyze_normalized_messages(rows, sender_role_map={"synthetic-a": "role_a"})
-    persist_profile_result(
+    analyze_and_persist_jsonl(
         db,
-        result,
-        source_dataset_id="dataset-2",
-        input_digest="c" * 64,
-        analyzer_digest="d" * 64,
-        message_mapping={row["message_id"]: f"db-{row['message_id']}" for row in rows},
+        rows,
+        sender_role_map={"synthetic-a": "role_a"},
+        source_id="source-a",
     )
     item = db.scalar(
         select(ProfileCandidateItem).where(
@@ -136,9 +134,17 @@ def test_review_admission_and_consumer_context_are_separate(test_session_factory
         )
     )
     assert item is not None
-    review_candidate_item(db, item.id, to_status="accepted", reviewer_id="reviewer-a")
-    item.confidence = 0.8
-    db.commit()
+    review_candidate_item(
+        db,
+        item.id,
+        to_status="accepted",
+        reviewer_id="reviewer-a",
+        note="审核人基于样本支撑度给出显式置信度",
+        reviewer_confidence=0.8,
+    )
+    db.refresh(item)
+    assert item.confidence is None
+    assert item.reviewer_confidence == 0.8
     version = admit_candidate_item(db, item.id)
     assert version.status == "draft"
     assert version.source_candidate_item_id == item.id
@@ -147,6 +153,8 @@ def test_review_admission_and_consumer_context_are_separate(test_session_factory
     version.status = "approved"
     trait = db.scalar(select(ProfileTrait).where(ProfileTrait.profile_version_id == version.id))
     assert trait is not None
+    assert trait.confidence == 0.8
+    assert trait.confidence_source == "reviewer_assessed"
     trait.review_status = "accepted"
     db.commit()
     context = build_role_context(db, "role_a", topic="observable")
@@ -163,14 +171,11 @@ def test_matched_evidence_requires_explicit_invalidation_before_message_delete(
 ):
     db = test_session_factory()
     rows = _seed(db)
-    result = analyze_normalized_messages(rows, sender_role_map={"synthetic-a": "role_a"})
-    persist_profile_result(
+    analyze_and_persist_jsonl(
         db,
-        result,
-        source_dataset_id="dataset-3",
-        input_digest="e" * 64,
-        analyzer_digest="f" * 64,
-        message_mapping={row["message_id"]: f"db-{row['message_id']}" for row in rows},
+        rows,
+        sender_role_map={"synthetic-a": "role_a"},
+        source_id="source-a",
     )
     evidence = db.scalar(
         select(ProfileCandidateEvidence).where(ProfileCandidateEvidence.match_status == "matched")
