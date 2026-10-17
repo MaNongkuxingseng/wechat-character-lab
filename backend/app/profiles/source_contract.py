@@ -233,6 +233,9 @@ def resolve_imported_message_mapping(
         if metadata.get("security_flag_sources") != canonical.get("security_flag_sources"):
             issues[source_message_id] = "security_provenance_mismatch"
             continue
+        if metadata.get("security_attestation") != canonical.get("security_attestation"):
+            issues[source_message_id] = "security_attestation_mismatch"
+            continue
         content = canonical.get("content")
         if canonical.get("content_status") == "present" and (
             not isinstance(content, str) or imported_message.text != content.strip()
@@ -368,6 +371,7 @@ def canonical_rows_from_approved_source(
                 "is_system": metadata.get("is_system"),
                 "security_flag_sources": metadata.get("security_flag_sources"),
                 "security_flag_inputs": metadata.get("security_flag_inputs"),
+                "security_attestation": source.metadata_json.get("security_attestation"),
                 "source_local_id": metadata.get("source_local_id"),
                 "source_server_id": metadata.get("source_server_id"),
                 "source_type_code": metadata.get("source_type_code", metadata.get("type_code")),
@@ -455,6 +459,7 @@ def _identity_record(message: Mapping[str, Any], role_id: str | None) -> dict[st
         "is_system": message.get("is_system"),
         "security_flag_sources": message.get("security_flag_sources"),
         "security_flag_inputs": message.get("security_flag_inputs"),
+        "security_attestation": message.get("security_attestation"),
         "canonical_contract_version": message.get("canonical_contract_version"),
     }
 

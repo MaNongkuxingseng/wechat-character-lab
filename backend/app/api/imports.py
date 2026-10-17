@@ -183,7 +183,27 @@ def approve_import(
             detail={"code": "duplicate_message_id", "message": "同一归档内存在重复 external_id"},
         )
 
+    attestation: dict[str, object] | None = None
+    if payload.trusted_human_attestation:
+        reviewer_id = (payload.attestation_reviewer_id or "").strip()
+        reason = (payload.attestation_reason or "").strip()
+        if not reviewer_id or not reason:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "security_attestation_requires_reviewer_and_reason"},
+            )
+        attestation = {
+            "human_authored": True,
+            "contains_ai_generated": False,
+            "contains_system_messages": False,
+            "reviewer_id": reviewer_id,
+            "reason": reason,
+            "attested_at": datetime.now(UTC).isoformat(),
+        }
     for message in messages:
+        message_metadata = dict(message.metadata)
+        if attestation is not None:
+            message_metadata["security_attestation"] = attestation
         db.add(
             ImportedMessage(
                 id=str(uuid4()),
@@ -193,7 +213,7 @@ def approve_import(
                 speaker_role_id=payload.speaker_mapping.get(message.speaker_label),
                 text=message.text,
                 sent_at=message.sent_at,
-                metadata_json=message.metadata,
+                metadata_json=message_metadata,
             )
         )
     source.status = "approved"
@@ -202,6 +222,10 @@ def approve_import(
         "message_count": len(messages),
         "semantic_llm_authorized": payload.semantic_llm_authorized,
     }
+    if attestation is not None:
+        source.metadata_json["security_attestation"] = attestation
+    else:
+        source.metadata_json.pop("security_attestation", None)
     db.commit()
     db.refresh(source)
     return ImportApprovalResponse(
@@ -302,4 +326,5 @@ def _source_read(source: Source) -> ImportSourceRead:
         message_count=int(source.metadata_json.get("message_count", 0)),
         error=source.metadata_json.get("error"),
         semantic_llm_authorized=bool(source.metadata_json.get("semantic_llm_authorized", False)),
+        security_attestation=source.metadata_json.get("security_attestation"),
     )

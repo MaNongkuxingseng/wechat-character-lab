@@ -163,3 +163,32 @@ def test_provider_rejects_redirect_without_forwarding_payload():
     assert output.status == "provider_rejected_request"
     assert output.signals == ()
     assert requests["count"] == 1
+
+
+def test_provider_bounds_large_role_input_and_keeps_full_sample_count():
+    captured: dict[str, object] = {}
+
+    def transport(endpoint, body, headers, timeout):
+        records = json.loads(json.loads(body.decode("utf-8"))["messages"][1]["content"])
+        captured["records"] = records
+        return _response(_payload(evidence_ids=[records[0]["message_id"]]))
+
+    messages = [
+        {"message_id": f"a-{index}", "content": "x" * 30}
+        for index in range(100)
+    ]
+    config = SemanticProviderConfig(
+        enabled=True,
+        allow_message_content=True,
+        endpoint="http://127.0.0.1:9999/v1/chat/completions",
+        model="synthetic-semantic",
+        max_input_chars=500,
+    )
+    analyzer = OpenAICompatibleSemanticAnalyzer(
+        config, approved_source=True, transport=transport
+    )
+    output = analyzer.analyze("role_a", messages)
+    assert output.status == "ready"
+    assert output.sample_count == 100
+    assert 1 < len(captured["records"]) < 100
+    assert output.metadata["input_available_count"] == 100

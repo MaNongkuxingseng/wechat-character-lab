@@ -28,6 +28,9 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [semanticLlmAuthorized, setSemanticLlmAuthorized] = useState(false);
+  const [trustedHumanAttestation, setTrustedHumanAttestation] = useState(false);
+  const [attestationReviewerId, setAttestationReviewerId] = useState("");
+  const [attestationReason, setAttestationReason] = useState("");
 
   async function refreshSources(preferredId?: string) {
     const nextSources = await listImportSources();
@@ -128,7 +131,14 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
     setError(null);
     setNotice(null);
     try {
-      const result = await approveImport(selectedId, mapping, semanticLlmAuthorized);
+      const result = await approveImport(
+        selectedId,
+        mapping,
+        semanticLlmAuthorized,
+        trustedHumanAttestation,
+        attestationReviewerId,
+        attestationReason,
+      );
       await refreshSources(selectedId);
       setPreview(await getImportPreview(selectedId));
       setNotice(`已导入 ${result.imported_messages} 条消息；未映射发言人的消息不会用于角色画像。`);
@@ -163,6 +173,33 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
             />
             允许后续语义 Provider 发送来源文本（默认关闭）
           </label>
+          <label className="semantic-consent">
+            <input
+              type="checkbox"
+              checked={trustedHumanAttestation}
+              disabled={!selectedId || selectedSource?.status !== "pending_review" || busy}
+              onChange={(event) => setTrustedHumanAttestation(event.target.checked)}
+            />
+            我确认样本为人工聊天，且不含 AI 或系统消息
+          </label>
+          {trustedHumanAttestation && (
+            <div className="attestation-fields">
+              <input
+                aria-label="可信声明审核人"
+                placeholder="审核人标识"
+                value={attestationReviewerId}
+                disabled={busy}
+                onChange={(event) => setAttestationReviewerId(event.target.value)}
+              />
+              <input
+                aria-label="可信声明理由"
+                placeholder="声明理由"
+                value={attestationReason}
+                disabled={busy}
+                onChange={(event) => setAttestationReason(event.target.value)}
+              />
+            </div>
+          )}
           <label className="secondary-button upload-button">
             {busy ? "处理中…" : "选择 ZIP 导出包"}
             <input
@@ -207,6 +244,9 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
                     onClick={() => {
                       setSelectedId(source.id);
                       setSemanticLlmAuthorized(false);
+                      setTrustedHumanAttestation(false);
+                      setAttestationReviewerId("");
+                      setAttestationReason("");
                       setError(null);
                       setNotice(null);
                     }}

@@ -299,7 +299,9 @@ def _message_rejection(
 
 def _validate_security_provenance(message: Mapping[str, Any]) -> str | None:
     """重算安全标记并与规范化审计记录比对，拒绝 unknown/conflict/伪造来源。"""
-    if message.get("is_ai_generated") is not False or message.get("is_system") is not False:
+    raw_ai = message.get("is_ai_generated")
+    raw_system = message.get("is_system")
+    if raw_ai is True or raw_system is True:
         return "unsafe_security_flags"
     provenance = message.get("security_flag_sources")
     inputs = message.get("security_flag_inputs")
@@ -312,15 +314,54 @@ def _validate_security_provenance(message: Mapping[str, Any]) -> str | None:
     source_message: dict[str, Any] = dict(top_level)
     source_message["source_metadata"] = dict(source_metadata)
     derived = derive_security_flags(source_message)
-    if derived.is_ai_generated is not False or derived.is_system is not False:
+    if derived.is_ai_generated is True or derived.is_system is True:
         return "security_provenance_not_explicitly_safe"
     observed = {
         field: provenance.get(field)
         for field in ("is_ai_generated", "is_system")
     }
+    if (raw_ai is not False or raw_system is not False) and not _valid_human_attestation(
+        message.get("security_attestation")
+    ):
+        return "unsafe_security_flags"
+    if (
+        derived.is_ai_generated is not False or derived.is_system is not False
+    ) and not _valid_human_attestation(message.get("security_attestation")):
+        return "security_provenance_not_explicitly_safe"
     if observed != derived.source_map():
         return "security_provenance_mismatch"
+    if any(
+        str(source).startswith(("invalid_type:", "conflict:"))
+        for source in derived.source_map().values()
+    ):
+        return "security_provenance_conflict"
+    if derived.is_ai_generated is False and derived.is_system is False:
+        return None
+    attestation = message.get("security_attestation")
+    if not _valid_human_attestation(attestation):
+        return "security_attestation_missing_or_invalid"
+    if (
+        attestation["contains_ai_generated"] is not False
+        or attestation["contains_system_messages"] is not False
+    ):
+        return "security_attestation_not_safe"
     return None
+
+
+def _valid_human_attestation(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    return (
+        value.get("human_authored") is True
+        and value.get("contains_ai_generated") is False
+        and value.get("contains_system_messages") is False
+        and isinstance(value.get("reviewer_id"), str)
+        and bool(value["reviewer_id"].strip())
+        and isinstance(value.get("reason"), str)
+        and bool(value["reason"].strip())
+        and isinstance(value.get("attested_at"), str)
+        and bool(value["attested_at"].strip())
+    )
 
 
 def _validate_role_map(sender_role_map: Mapping[str, str]) -> None:

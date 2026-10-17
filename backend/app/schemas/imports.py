@@ -13,6 +13,7 @@ class ImportSourceRead(BaseModel):
     message_count: int = 0
     error: str | None = None
     semantic_llm_authorized: bool = False
+    security_attestation: dict[str, object] | None = None
 
 
 class ImportScanResponse(BaseModel):
@@ -60,6 +61,9 @@ class ImportApprovalRequest(BaseModel):
 
     speaker_mapping: dict[str, str] = Field(default_factory=dict)
     semantic_llm_authorized: bool = False
+    trusted_human_attestation: bool = False
+    attestation_reviewer_id: str | None = Field(default=None, max_length=255)
+    attestation_reason: str | None = Field(default=None, max_length=1000)
 
 
 class SemanticTransferConsentRequest(BaseModel):

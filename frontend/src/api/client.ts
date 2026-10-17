@@ -105,12 +105,18 @@ export function approveImport(
   sourceId: string,
   speakerMapping: Record<string, string>,
   semanticLlmAuthorized = false,
+  trustedHumanAttestation = false,
+  attestationReviewerId = "",
+  attestationReason = "",
 ): Promise<{ source: ImportSource; imported_messages: number }> {
   return request(`/api/imports/${sourceId}/approve`, {
     method: "POST",
     body: JSON.stringify({
       speaker_mapping: speakerMapping,
       semantic_llm_authorized: semanticLlmAuthorized,
+      trusted_human_attestation: trustedHumanAttestation,
+      attestation_reviewer_id: attestationReviewerId,
+      attestation_reason: attestationReason,
     }),
   });
 }

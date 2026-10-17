@@ -266,10 +266,63 @@ def test_source_transfer_consent_requires_approved_source_and_can_be_revoked(
     assert db.get(Source, "synthetic-approved-source").metadata_json[
         "semantic_llm_authorization"
     ]["reviewer_id"] == "synthetic-reviewer"
-
     revoked = client.post(
         "/api/imports/synthetic-approved-source/semantic-transfer-consent",
         json={"authorized": False, "reviewer_id": "synthetic-reviewer"},
     )
     assert revoked.status_code == 200
     assert revoked.json()["semantic_llm_authorized"] is False
+
+
+def test_attested_unknown_security_flags_are_accepted_without_overwriting_raw_values():
+    from app.profiles.jsonl_service import _validate_security_provenance
+
+    message = {
+        "is_ai_generated": None,
+        "is_system": None,
+        "security_flag_inputs": {
+            "top_level": {},
+            "source_metadata": {},
+        },
+        "security_flag_sources": {
+            "is_ai_generated": "unknown:no_reliable_source",
+            "is_system": "unknown:no_reliable_source",
+        },
+        "security_attestation": {
+            "human_authored": True,
+            "contains_ai_generated": False,
+            "contains_system_messages": False,
+            "reviewer_id": "authorized-reviewer",
+            "reason": "User confirmed the selected human-authored sample.",
+            "attested_at": "2026-10-17T00:00:00+00:00",
+        },
+    }
+    assert _validate_security_provenance(message) is None
+    assert message["is_ai_generated"] is None
+    assert message["is_system"] is None
+
+
+def test_attestation_does_not_override_explicit_unsafe_flags():
+    from app.profiles.jsonl_service import _validate_security_provenance
+
+    message = {
+        "is_ai_generated": True,
+        "is_system": False,
+        "security_flag_inputs": {
+            "top_level": {"is_ai_generated": True, "is_system": False},
+            "source_metadata": {},
+        },
+        "security_flag_sources": {
+            "is_ai_generated": "explicit:message.is_ai_generated",
+            "is_system": "explicit:message.is_system",
+        },
+        "security_attestation": {
+            "human_authored": True,
+            "contains_ai_generated": False,
+            "contains_system_messages": False,
+            "reviewer_id": "authorized-reviewer",
+            "reason": "Incorrect claim must not override an explicit unsafe flag.",
+            "attested_at": "2026-10-17T00:00:00+00:00",
+        },
+    }
+    assert _validate_security_provenance(message) == "unsafe_security_flags"

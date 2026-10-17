@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ImportedMessage, ProfileEvidence, ProfileTrait, ProfileVersion, Source
 from app.profiles.analyzer import ObservableTextAnalyzer
+from app.profiles.jsonl_service import _validate_security_provenance
 
 ANALYZER = ObservableTextAnalyzer()
 
@@ -79,8 +80,27 @@ def create_draft(db: Session, role_id: str) -> ProfileVersion:
 def _is_text_message(message: ImportedMessage) -> bool:
     """判断导入消息是否为可用于文字风格分析的文本记录。"""
     metadata = message.metadata_json or {}
-    if metadata.get("is_ai_generated") is not False or metadata.get("is_system") is not False:
+    raw_flags = {
+        "is_ai_generated": metadata.get("is_ai_generated"),
+        "is_system": metadata.get("is_system"),
+    }
+    if any(value is not False for value in raw_flags.values()) and not (
+        metadata.get("security_attestation")
+        and metadata.get("security_attestation", {}).get("contains_ai_generated") is False
+        and metadata.get("security_attestation", {}).get("contains_system_messages") is False
+    ):
         return False
+    if "security_flag_sources" in metadata or "security_flag_inputs" in metadata:
+        if _validate_security_provenance(
+            {
+                "is_ai_generated": metadata.get("is_ai_generated"),
+                "is_system": metadata.get("is_system"),
+                "security_flag_sources": metadata.get("security_flag_sources"),
+                "security_flag_inputs": metadata.get("security_flag_inputs"),
+                "security_attestation": metadata.get("security_attestation"),
+            }
+        ) is not None:
+            return False
     message_type = metadata.get("message_type")
     type_code = metadata.get("type_code")
     if message_type is not None and str(message_type) not in {"文本", "text", "Text"}:

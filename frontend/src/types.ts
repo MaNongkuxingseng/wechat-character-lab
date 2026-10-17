@@ -66,6 +66,7 @@ export interface ImportSource {
   message_count: number;
   error: string | null;
   semantic_llm_authorized: boolean;
+  security_attestation?: Record<string, unknown> | null;
 }
 
 export interface CandidateEvidence {

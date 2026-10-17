@@ -131,9 +131,9 @@ class OpenAICompatibleSemanticAnalyzer:
             seen_ids.add(message_id)
             records.append({"message_id": message_id, "content": content})
 
+        available_count = len(records)
+        records = _fit_records_to_budget(records, self.config.max_input_chars)
         encoded_input = json.dumps(records, ensure_ascii=False, separators=(",", ":"))
-        if len(encoded_input) > self.config.max_input_chars:
-            return self._result("input_too_large", len(messages))
         if not records:
             return self._result("insufficient_samples", 0)
 
@@ -197,6 +197,9 @@ class OpenAICompatibleSemanticAnalyzer:
             signals,
             {
                 "trait_count": len(signals),
+                "input_sample_count": len(records),
+                "input_sample_chars": len(encoded_input),
+                "input_available_count": available_count,
                 "provider_config_digest": _provider_config_digest(
                     self.config.endpoint or "", self.config.model or ""
                 ),
@@ -236,6 +239,24 @@ class OpenAICompatibleSemanticAnalyzer:
 
     def _result(self, status: str, sample_count: int) -> AnalyzerOutput:
         return AnalyzerOutput(self.name, self.version, status, sample_count, ())
+
+
+def _fit_records_to_budget(
+    records: Sequence[Mapping[str, str]], max_input_chars: int
+) -> list[dict[str, str]]:
+    """Select a deterministic role-scoped subset without sending the full archive."""
+    selected: list[dict[str, str]] = []
+    if not records:
+        return selected
+    step = max(1, len(records) // 500)
+    indexes = sorted({0, len(records) - 1, *range(0, len(records), step)})
+    for index in indexes:
+        candidate = dict(records[index])
+        trial = [*selected, candidate]
+        if len(json.dumps(trial, ensure_ascii=False, separators=(",", ":"))) > max_input_chars:
+            continue
+        selected.append(candidate)
+    return selected
 
 
 class _ProviderFailure(Exception):

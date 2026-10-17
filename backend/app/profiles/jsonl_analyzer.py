@@ -124,7 +124,14 @@ class ObservableAnalyzer:
                     refs,
                 )
             )
-        return AnalyzerOutput(self.name, self.version, "ready", len(sample), tuple(signals))
+        return AnalyzerOutput(
+            self.name,
+            self.version,
+            "ready",
+            len(messages),
+            tuple(signals),
+            {"sample_used": len(sample), "sample_available": len(messages)},
+        )
 
 
 class FakeSemanticAnalyzer:
