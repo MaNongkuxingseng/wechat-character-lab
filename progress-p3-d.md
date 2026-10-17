@@ -16,3 +16,12 @@
 - 首次浏览器加载误触语音 assets 聚合 manifest 读取，未读媒体字节；随后改用不挂载 voice router 的隔离服务完成流程。真实样本和真实 LLM 测试未执行。
 - 运行结束时服务停止命令已执行。策略拒绝删除 `.p3d-tmp-inbox-e2e-20261017`；检查确认其只含两份本轮合成 ZIP，不纳入提交。
 - 完成最终报告后仅暂存 P3-D 文件，提交并推送当前分支。
+
+## 2026-10-17 真实语义验收补充
+
+- 显式选择 `data/inbox/pengna_wechat_history_raw_20261014.json` 做只读解析，派生 ZIP 写入系统临时目录；未扫描其他真实归档或媒体目录。
+- 解析摘要：37,769 条消息、2 个匿名发言人桶、32,718 条非空文本、external ID 无重复、时间戳全有效。
+- 两个安全标记在全部消息上均为 `unknown:no_reliable_source`，因此按现有严格门禁阻断普通画像候选；未默认填充 False。
+- Provider 环境未配置 endpoint/model/key；未调用 DeepSeek、ChatGPT 或其他外部模型。
+- 真实样本候选、审核、发布及 52 轮“复合”对话未执行，已在 `reports/p3-d-real-semantic-acceptance.md` 记录阻断原因和前置条件。
+- DeepSeek OpenAI-compatible 配置说明已补入 `docs/semantic-profile-provider.md`。

@@ -22,6 +22,25 @@ produced, but are not presented as semantic results. Invalid JSON, invented or
 cross-role evidence IDs, overlapping supporting/counter references, and
 verbatim source excerpts reject the semantic response without fallback.
 
+## DeepSeek-compatible configuration
+
+DeepSeek exposes an OpenAI-compatible Chat Completions endpoint and can use the
+same adapter without a new SDK:
+
+```dotenv
+SEMANTIC_LLM_ENABLED=true
+SEMANTIC_LLM_ALLOW_MESSAGE_CONTENT=true
+SEMANTIC_LLM_ENDPOINT=https://api.deepseek.com/chat/completions
+SEMANTIC_LLM_MODEL=deepseek-chat
+SEMANTIC_LLM_API_KEY=<set only in ignored backend/.env>
+```
+
+`deepseek-reasoner` may be selected when its structured JSON response behavior
+has been verified in the target account. The key is never printed or committed.
+The current ChatGPT conversation is not an application Provider and cannot be
+reported as a real in-app model call; use a configured OpenAI-compatible
+endpoint for reproducible acceptance.
+
 Tests inject an in-memory transport and synthetic messages. They do not call a
 network service. Real-model acceptance additionally requires an approved source
 whose reviewer explicitly granted transfer permission and an authorized,
