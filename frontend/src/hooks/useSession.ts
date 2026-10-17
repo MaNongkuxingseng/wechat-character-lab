@@ -33,10 +33,10 @@ export function useSession() {
     };
   }, []);
 
-  const startSession = useCallback(async (topic: string, turnDelaySeconds = 4) => {
+  const startSession = useCallback(async (topic: string, turnDelaySeconds = 4, roleIds = ["role_a", "role_b"]) => {
     setError(null);
     try {
-      const created = await createSession(topic, turnDelaySeconds);
+      const created = await createSession(topic, turnDelaySeconds, roleIds);
       setSession(created);
       setEvents([]);
       socketRef.current?.close();

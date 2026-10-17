@@ -74,7 +74,11 @@ def _seed(db):
                 speaker_role_id="role_a",
                 text=str(row["content"]),
                 sent_at=datetime(2026, 1, 1, 10, 0, tzinfo=UTC),
-                metadata_json={"message_type": "text"},
+                metadata_json={
+                    "message_type": "text",
+                    "is_ai_generated": False,
+                    "is_system": False,
+                },
             )
         )
     db.commit()

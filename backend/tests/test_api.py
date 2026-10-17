@@ -1,9 +1,18 @@
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api import events as events_api
-from app.models import ConversationSession, Role
+from app.models import (
+    ConversationSession,
+    ImportedMessage,
+    ProfileEvidence,
+    ProfileTrait,
+    ProfileVersion,
+    Role,
+    Source,
+)
 
 
 def seed_roles(factory: sessionmaker[Session]) -> None:
@@ -24,6 +33,79 @@ def seed_roles(factory: sessionmaker[Session]) -> None:
             )
 
 
+def seed_approved_profiles(factory: sessionmaker[Session]) -> None:
+    with factory.begin() as db:
+        for role_id in ("role_a", "role_b"):
+            source_id = f"source-{role_id}"
+            message_id = f"message-{role_id}"
+            version_id = f"version-{role_id}"
+            trait_id = f"trait-{role_id}"
+            db.add(
+                Source(
+                    id=source_id,
+                    kind="synthetic",
+                    name=source_id,
+                    status="approved",
+                    metadata_json={},
+                )
+            )
+            db.flush()
+            db.add(
+                ImportedMessage(
+                    id=message_id,
+                    source_id=source_id,
+                    external_id=message_id,
+                    speaker_label=role_id,
+                    speaker_role_id=role_id,
+                    text="合成证据",
+                    sent_at=datetime.now(UTC),
+                    metadata_json={
+                        "message_type": "text",
+                        "is_ai_generated": False,
+                        "is_system": False,
+                    },
+                )
+            )
+            db.flush()
+            db.add(
+                ProfileVersion(
+                    id=version_id,
+                    role_id=role_id,
+                    version=1,
+                    status="approved",
+                    analyzer="test",
+                    sample_count=1,
+                    created_at=datetime.now(UTC),
+                    approved_at=datetime.now(UTC),
+                )
+            )
+            db.flush()
+            db.add(
+                ProfileTrait(
+                    id=trait_id,
+                    profile_version_id=version_id,
+                    category="test",
+                    trait_key="test",
+                    description=f"{role_id} approved trait",
+                    confidence=0.8,
+                    cognitive_state="evidence_backed",
+                    inference_basis=None,
+                    conflict_status="none",
+                    review_status="accepted",
+                    created_at=datetime.now(UTC),
+                )
+            )
+            db.flush()
+            db.add(
+                ProfileEvidence(
+                    id=f"evidence-{role_id}",
+                    trait_id=trait_id,
+                    message_id=message_id,
+                    rationale="synthetic",
+                )
+            )
+
+
 def test_health_and_roles(client, test_session_factory):
     seed_roles(test_session_factory)
 
@@ -36,6 +118,7 @@ def test_health_and_roles(client, test_session_factory):
 
 def test_create_and_read_session(client, test_session_factory):
     seed_roles(test_session_factory)
+    seed_approved_profiles(test_session_factory)
     created = client.post("/api/sessions", json={"topic": "AI 与日常工作"})
 
     assert created.status_code == 201
@@ -188,6 +271,7 @@ def test_pause_user_resume_preserves_role_rotation(client, test_session_factory,
     from app.models import Turn
 
     seed_roles(test_session_factory)
+    seed_approved_profiles(test_session_factory)
     created = client.post(
         "/api/sessions", json={"topic": "pause 测试", "turn_limit": 4, "turn_delay_seconds": 0.5}
     ).json()
@@ -231,8 +315,14 @@ def test_pause_user_resume_preserves_role_rotation(client, test_session_factory,
         assert [turn.speaker_role_id for turn in turns] == ["role_a", None, "role_b", "role_a"]
 
 
-def test_pause_cancels_inflight_generation(client, test_session_factory, monkeypatch):
-    """慢 Provider 被 pause 取消后，不能持久化迟到回复。"""
+@pytest.mark.parametrize(
+    ("control_event", "expected_status"),
+    [("session.pause", "paused"), ("session.stop", "completed")],
+)
+def test_control_cancels_inflight_generation(
+    client, test_session_factory, monkeypatch, control_event, expected_status
+):
+    """valen MPF: pause 和 stop 取消生成后都不得持久化迟到回复。"""
     import asyncio
     import threading
 
@@ -252,6 +342,7 @@ def test_pause_cancels_inflight_generation(client, test_session_factory, monkeyp
             cancelled.set()
 
     seed_roles(test_session_factory)
+    seed_approved_profiles(test_session_factory)
     created = client.post("/api/sessions", json={"topic": "取消测试"}).json()
     monkeypatch.setattr(events_api, "SessionLocal", test_session_factory)
     monkeypatch.setattr(MockRoleAgent, "respond", slow_respond)
@@ -261,10 +352,18 @@ def test_pause_cancels_inflight_generation(client, test_session_factory, monkeyp
         for _ in range(3):
             ws.receive_json()
         assert entered.wait(2)
-        ws.send_json({"type": "session.pause"})
+        ws.send_json({"type": control_event})
         assert ws.receive_json()["type"] == "generation.cancelled"
         assert ws.receive_json()["type"] == "event.accepted"
-        assert ws.receive_json()["status"] == "paused"
+        state_events = []
+        while True:
+            event = ws.receive_json()
+            if event["type"] == "session.state":
+                state_events.append(event["status"])
+                if event["status"] == expected_status:
+                    break
         assert cancelled.wait(2)
+        assert state_events[-1] == expected_status
         with test_session_factory() as db:
             assert db.scalar(select(func.count(Turn.id))) == 0
+            assert db.get(ConversationSession, created["id"]).status == expected_status

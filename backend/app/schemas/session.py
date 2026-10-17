@@ -35,4 +35,5 @@ class SessionRead(BaseModel):
     status: str
     turn_limit: int
     turn_count: int
+    settings: dict[str, object] = Field(default_factory=dict)
     created_at: datetime

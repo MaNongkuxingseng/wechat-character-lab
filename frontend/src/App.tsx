@@ -10,6 +10,7 @@ import { useSession } from "./hooks/useSession";
 export default function App() {
   const [topic, setTopic] = useState("");
   const [turnDelay, setTurnDelay] = useState(4);
+  const [roleIds, setRoleIds] = useState<[string, string]>(["role_a", "role_b"]);
   const { roles, session, connection, events, error, startSession, sendMessage, stopSession, pauseOrResumeSession } = useSession();
   const connected = connection === "connected";
 
@@ -75,15 +76,24 @@ export default function App() {
               <TopicPanel
                 topic={topic}
                 onTopicChange={setTopic}
-                onStart={() => void startSession(topic.trim(), turnDelay)}
+                onStart={() => void startSession(topic.trim(), turnDelay, roleIds)}
                 turnDelay={turnDelay}
                 onTurnDelayChange={setTurnDelay}
+                roles={roles}
+                roleIds={roleIds}
+                onRoleIdsChange={setRoleIds}
                 disabled={!connected || Boolean(session && ["created", "initializing", "running", "paused", "stopping"].includes(session.status))}
               />
               {error && <div className="error-banner" role="alert">{error}</div>}
               <ChatTimeline session={session} events={events} onSend={sendMessage} onStop={stopSession} onPauseOrResume={pauseOrResumeSession} />
             </div>
             <aside className="detail-column">
+              {session && <section className="runtime-panel" aria-label="画像状态">
+                <div className="section-heading section-heading--compact"><span className="section-index">03</span><div><h2>画像状态</h2><p>{session.settings.provider === "mock" ? "Mock Provider" : "真实 Provider"}</p></div></div>
+                <dl className="runtime-list">
+                  {Object.entries(session.settings.profile_readiness ?? {}).map(([roleId, readiness]) => <div key={roleId}><dt>{roleId}</dt><dd>{readiness}</dd></div>)}
+                </dl>
+              </section>}
               <VoiceControls />
               <section className="runtime-panel">
                 <div className="section-heading section-heading--compact">

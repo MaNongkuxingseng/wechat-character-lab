@@ -14,6 +14,11 @@ export interface SessionRead {
   status: string;
   turn_limit: number;
   turn_count: number;
+  settings: {
+    provider?: string;
+    profile_readiness?: Record<string, string>;
+    profile_snapshots?: Record<string, { profile_version_id: string | null; trait_ids: string[]; readiness: string }>;
+  };
   created_at: string;
 }
 

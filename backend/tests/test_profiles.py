@@ -28,7 +28,7 @@ def seed_profile_messages(factory: sessionmaker[Session]) -> None:
             kind="inbox_archive",
             name="approved.zip",
             status="approved",
-            metadata_json={},
+            metadata_json={"message_type": "text", "is_ai_generated": False, "is_system": False},
             imported_at=now,
         )
         pending = Source(
@@ -36,7 +36,7 @@ def seed_profile_messages(factory: sessionmaker[Session]) -> None:
             kind="inbox_archive",
             name="pending.zip",
             status="pending_review",
-            metadata_json={},
+            metadata_json={"message_type": "text", "is_ai_generated": False, "is_system": False},
             imported_at=now,
         )
         db.add_all([approved, pending])
@@ -57,7 +57,11 @@ def seed_profile_messages(factory: sessionmaker[Session]) -> None:
                     speaker_role_id=role_id,
                     text=text,
                     sent_at=now,
-                    metadata_json={},
+                    metadata_json={
+                        "message_type": "text",
+                        "is_ai_generated": False,
+                        "is_system": False,
+                    },
                 )
             )
         for index in range(3):
@@ -70,7 +74,11 @@ def seed_profile_messages(factory: sessionmaker[Session]) -> None:
                     speaker_role_id="role_a",
                     text="待审核消息不能参与分析",
                     sent_at=now,
-                    metadata_json={},
+                    metadata_json={
+                        "message_type": "text",
+                        "is_ai_generated": False,
+                        "is_system": False,
+                    },
                 )
             )
 

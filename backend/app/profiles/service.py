@@ -78,6 +78,8 @@ def create_draft(db: Session, role_id: str) -> ProfileVersion:
 def _is_text_message(message: ImportedMessage) -> bool:
     """判断导入消息是否为可用于文字风格分析的文本记录。"""
     metadata = message.metadata_json or {}
+    if metadata.get("is_ai_generated") is not False or metadata.get("is_system") is not False:
+        return False
     message_type = metadata.get("message_type")
     type_code = metadata.get("type_code")
     if message_type is not None and str(message_type) not in {"文本", "text", "Text"}:

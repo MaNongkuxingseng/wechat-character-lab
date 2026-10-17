@@ -13,11 +13,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agents.mock_agents import MockDirectorAgent, MockRoleAgent
-from app.models import ConversationSession, ProfileTrait, ProfileVersion, Role, SessionEvent, Turn
+from app.models import ConversationSession, Role, SessionEvent, Turn
+from app.profiles.consumer import RoleProfileContext, build_role_context
 from app.schemas.role import RoleProfile
 from app.schemas.session import SessionRead
 
 from .state_machine import SessionState, can_transition
+
+
+class ProfileContextUnavailable(ValueError):
+    """Raised when a session snapshot can no longer be used safely."""
 
 
 class ConversationOrchestrator:
@@ -101,22 +106,18 @@ class ConversationOrchestrator:
                 .limit(6)
             )
         )
-        approved_traits = list(
-            self.db.scalars(
-                select(ProfileTrait)
-                .join(ProfileVersion, ProfileVersion.id == ProfileTrait.profile_version_id)
-                .where(
-                    ProfileVersion.role_id == role_id,
-                    ProfileVersion.status == "approved",
-                    ProfileTrait.review_status == "accepted",
-                )
-                .order_by(ProfileTrait.created_at)
-            )
+        profile_context = self._profile_context(session, role_id)
+        reviewed_profile = "；".join(feature.claim for feature in profile_context.features)
+        role_profile = role_profile.model_copy(
+            update={
+                "profile": reviewed_profile,
+                "style_profile": {"summary": reviewed_profile},
+            }
         )
         context = self._context(
             session.topic,
             list(reversed(previous)),
-            [trait.description for trait in approved_traits],
+            [feature.claim for feature in profile_context.features],
             intent=str(plan.get("intent") or "respond"),
         )
         text = await self.role_agent.respond(role_profile, context)
@@ -142,6 +143,9 @@ class ConversationOrchestrator:
             "speaker_label": role.label,
             "text": text,
             "interrupted": False,
+            "profile_version_id": profile_context.profile_version_id,
+            "trait_ids": list(profile_context.usage.get("trait_ids", [])),
+            "provider": "mock",
         }
         outputs = [
             self.record_event("turn.created", payload),
@@ -150,6 +154,30 @@ class ConversationOrchestrator:
         if session.turn_count >= session.turn_limit:
             outputs.append(self.set_state(SessionState.COMPLETED))
         return outputs
+
+    def _profile_context(
+        self, session: ConversationSession, role_id: str
+    ) -> RoleProfileContext:
+        # Legacy fixture sessions without a snapshot remain Mock-only demos;
+        # API-created sessions always carry snapshots and are gated below.
+        if "profile_snapshots" not in session.settings:
+            return RoleProfileContext(role_id, "mock", "legacy_mock", None, (), {})
+        context = build_role_context(self.db, role_id, session_id=self.session_id)
+        if context.readiness != "ready" or context.profile_version_id is None:
+            raise ProfileContextUnavailable(
+                f"profile_unavailable:{role_id}:{context.readiness}"
+            )
+        snapshots = session.settings.get("profile_snapshots", {})
+        expected = snapshots.get(role_id)
+        if expected:
+            actual_trait_ids = list(context.usage.get("trait_ids", []))
+            if (
+                expected.get("profile_version_id") != context.profile_version_id
+                or expected.get("trait_ids", []) != actual_trait_ids
+                or expected.get("readiness") != context.readiness
+            ):
+                raise ProfileContextUnavailable(f"profile_snapshot_stale:{role_id}")
+        return context
 
     def add_user_turn(self, text: str) -> list[dict[str, object]]:
         """保存用户插话，并将其作为下一轮 Agent 的上下文。"""

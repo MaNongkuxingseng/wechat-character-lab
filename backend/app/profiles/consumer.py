@@ -28,6 +28,17 @@ class ProfileFeatureContext:
     evidence_refs: tuple[dict[str, object], ...]
 
 
+def _trait_is_eligible(trait: ProfileTrait) -> bool:
+    """Keep only reviewed, confidence-bearing traits with an explicit basis."""
+    if trait.review_status != "accepted" or trait.conflict_status != "none":
+        return False
+    if trait.cognitive_state not in {"evidence_backed", "model_inferred"}:
+        return False
+    if trait.confidence is None:
+        return False
+    return trait.cognitive_state != "model_inferred" or bool(trait.inference_basis)
+
+
 @dataclass(frozen=True)
 class RoleProfileContext:
     role_id: str
@@ -69,11 +80,11 @@ def build_role_context(
             select(ProfileTrait)
             .where(
                 ProfileTrait.profile_version_id == version.id,
-                ProfileTrait.review_status == "accepted",
             )
             .order_by(ProfileTrait.created_at, ProfileTrait.id)
         )
     )
+    traits = [trait for trait in traits if _trait_is_eligible(trait)]
     if topic:
         needle = topic.strip().lower()
         traits = [
@@ -86,7 +97,11 @@ def build_role_context(
     feature_rows: list[ProfileFeatureContext] = []
     for trait in traits:
         evidence_refs = tuple(
-            {"message_id": item.message_id, "rationale": item.rationale}
+            {
+                "message_id": item.message_id,
+                "rationale": item.rationale,
+                "source_status": "approved",
+            }
             for item in db.scalars(
                 select(ProfileEvidence)
                 .join(ImportedMessage, ImportedMessage.id == ProfileEvidence.message_id)

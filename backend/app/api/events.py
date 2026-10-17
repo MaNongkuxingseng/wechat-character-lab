@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import Field, TypeAdapter, ValidationError
 
-from app.core.orchestrator import ConversationOrchestrator
+from app.core.orchestrator import ConversationOrchestrator, ProfileContextUnavailable
 from app.core.state_machine import SessionState
 from app.db import SessionLocal
 from app.repositories.sessions import get_session
@@ -76,6 +76,14 @@ async def session_events(websocket: WebSocket, session_id: str) -> None:
                         return
         except asyncio.CancelledError:
             raise
+        except ProfileContextUnavailable as exc:
+            with SessionLocal() as db:
+                orchestrator = ConversationOrchestrator(db, session_id)
+                if orchestrator.session().status == SessionState.RUNNING.value:
+                    await websocket.send_json(orchestrator.set_state(SessionState.PAUSED))
+            await websocket.send_json(
+                ProtocolError(code="profile_unavailable", message=str(exc)).model_dump()
+            )
         except Exception:
             # 不向客户端泄漏 Provider 内部异常或凭证，只报告可恢复状态。
             with SessionLocal() as db:
