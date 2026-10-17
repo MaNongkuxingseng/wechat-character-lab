@@ -165,3 +165,45 @@
 - 最终核对：`git diff --check` 退出码 0；分支/HEAD 未变化，20 个已跟踪文件修改、5 个未跟踪文件，包含 P3-C 报告；无 stage/commit/push。Git 仅提示部分文件后续写入时 LF 会被转换为 CRLF。
 - 对未跟踪报告单独运行行尾空白扫描时发现并删除标题作者行空格；最终复查无尾随空白，`git diff --check` 退出码 0。
 - P3-C 报告已完成，列出真实样本未执行、Inbox HTTP 路径未由自动测试覆盖、迁移已有候选数据回滚路径缺少专项测试以及消息删除 helper 尚无生产调用方等风险。任务停止等待人工 Review。
+## 2026-10-17：P3-E.1 真实 Provider 冒烟
+
+- 已完成 Git/配置状态核查；未读取历史密钥或真实聊天。
+- 隔离配置已存在受 DPAPI 保护的 Key，状态接口仅暴露 `api_key_configured=true`。
+- 下一步：真实模型目录测试、合成语义协议测试、安全报告。
+- 模型目录真实请求通过，选定实际可用的 `deepseek-v4-pro`。
+- 合成语义协议真实请求通过，`profile-semantic-v1` 信号数 2。
+- 定向测试 14 passed；定向 Ruff 通过。
+- 日志与 Git 敏感扫描未发现 Key 或 Authorization header；P3-E.1 报告已生成。
+## 2026-10-17：P3-F 启动
+
+- 基线 HEAD `37591fe`，分支与远端一致。
+- 保留 P3-E.1 的未提交报告/规划追加，以及执行前已有 P3-D 临时目录和报告。
+- 已启用 planning-with-files、E2E、Computer Use 与 Git workflow；进入阶段 A 源码核查。
+- 完成阶段 A 调用链核查；新增 OpenAI-compatible 对话 Provider、真实 Role Agent、显式会话模式、配置/画像快照重校验和逐轮脱敏追踪。
+- 定向测试首次 19 passed / 1 failed，修正配置变化错误分类后 20 passed；Ruff、前端 typecheck 与 production build 通过。测试未联网、未读取 Inbox。
+- 固定合成消息经真实 DeepSeek 完成画像生命周期：16 个候选、8 条映射、0 问题，A/B 各发布 1 个正式版本；真实 A/B 冒烟 4/4 成功。
+- Edge 浏览器完成真实 LLM 两轮、暂停、用户插话、继续和停止；Provider 页面确认 Key 不回显、真实 Agent 可用。
+- 已输出本次单一真实归档、有界样本、角色映射、安全门禁和 Provider 摘要；真实聊天正文与 52 轮等待用户明确回复“确认本次 P3-F 外发”。
+- 最终安全范围回归：后端排除 `test_imports.py` 后 149 passed / 6 warnings；Ruff、前端 production build、`git diff --check` 和跟踪差异敏感模式检查通过。
+
+## 2026-10-18：P3-F 真实验收续接
+
+- 用户已明确确认对已锁定单一真实 ZIP 的本次有界外发。
+- 已复核分支 `feature/p2b-workspace-updates`、HEAD `22d53b5`，本地领先远端 1 个提交；执行前既有临时目录、旧报告及规划文件修改全部保留。
+- 下一步：创建全新 `%TEMP%` 隔离目录，复用受 DPAPI 保护的 Provider 配置数据库，通过现有页面导入/映射/批准并执行真实画像、审核发布和 52 轮真实对话。
+- Edge 文件上传权限已生效；首次上传暴露仓库外隔离 Inbox 路径缺陷，真实正文未外发。已修复 `inbox_relative_path` 保存/解析并补充独立 `tmp_path` 回归测试，15 passed、Ruff 通过。
+- 页面完成 37,769 条真实消息导入与 A/B 显式映射；32,718 条文本通过门禁，5,051 条非文本拒绝。三次有界 DeepSeek 分析均未生成候选，最终诊断为 A/B `content_json_decode`；未审核、未准入、未发布、未启动 52 轮，Mock 回退 0。
+
+## 2026-10-18：协议失败修复续接
+
+### 最终交付结果
+
+- 已修复真实 DeepSeek 协议失败：reasoning 预算耗尽、JSON 截断、非法 evidence 引用重试，以及未知安全标记被错误拒绝。
+- 真实快照 `27017c72-fcaf-4b0e-b704-412d83ee742a`：16 条语义候选接受、14 条统计/冲突候选拒绝、16 条准入、16 条发布。
+- 真实 Provider 会话 `5ab917a2-0294-40ff-a119-525e22778c17`：主题“复合”，52/52 轮，A/B 各 26，失败 0，Mock 回退 0。
+- 完整明文对话文件仅位于 `%TEMP%/wechat-character-lab-p3f-real-20261018/p3f-real-composite-52-dialogue.md`，未纳入 Git。
+- 详细报告：`reports/p3-f-real-semantic-52-final.md`。
+
+- 已定位失败层级：真实 Provider 外层响应可解析，`message.content` 内容不是直接 JSON；尚未把原始内容写入日志、报告或 Git。
+- 当前目标：用隔离库和已授权样本做一次脱敏响应结构复核，确定具体包装；随后实施严格兼容解析、回归测试和真实 A/B 重测。
+- 交付口径保持严格：只有真实候选经过人工审核、准入和正式发布后，才可进入真实画像对话；不得用 Mock 或统计结果补齐。

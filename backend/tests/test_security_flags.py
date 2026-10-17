@@ -277,6 +277,45 @@ def test_explicit_safe_flags_pass_but_confirmed_ai_or_system_flags_do_not():
     )
     assert len(safe_result.candidates) == 1
 
+
+def test_human_attestation_allows_unknown_flags_without_rewriting_them():
+    records, _ = normalize_payload({"messages": [_raw_message()]}, source_file="synthetic.json")
+    record = dict(records[0])
+    record.update(
+        {
+            "is_ai_generated": None,
+            "is_system": None,
+            "security_flag_sources": {
+                "is_ai_generated": "unknown:no_reliable_source",
+                "is_system": "unknown:no_reliable_source",
+            },
+            "security_attestation": {
+                "human_authored": True,
+                "contains_ai_generated": False,
+                "contains_system_messages": False,
+                "reviewer_id": "synthetic-reviewer",
+                "reason": "bounded test sample",
+                "attested_at": "2026-10-18T00:00:00Z",
+            },
+        }
+    )
+    result = adapt_synthetic_signals(
+        [record],
+        [
+            {
+                "signal_id": "attested-unknown",
+                "subject_id": "role_a",
+                "category": "preference",
+                "claim": "经人工声明的未知标记仍保留原始语义",
+                "evidence_ids": [record["message_id"]],
+            }
+        ],
+        sender_role_map={"A": "role_a"},
+    )
+    assert len(result.candidates) == 1
+    assert record["is_ai_generated"] is None
+    assert record["is_system"] is None
+
     flagged_records, _ = normalize_payload(
         {
             "messages": [

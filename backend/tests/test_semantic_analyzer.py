@@ -85,7 +85,7 @@ def test_provider_validates_structured_output_and_does_not_send_sender_labels():
 
     def transport(endpoint, body, headers, timeout):
         captured["endpoint"] = endpoint
-        captured["body"] = body.decode("utf-8")
+        captured["body"] = json.loads(body.decode("utf-8"))
         captured["headers"] = dict(headers)
         captured["timeout"] = timeout
         return _response(_payload())
@@ -100,6 +100,8 @@ def test_provider_validates_structured_output_and_does_not_send_sender_labels():
     assert output.signals[0]["category"] == "semantic.behavior_pattern"
     assert "private-label" not in str(captured["body"])
     assert "test-only" not in str(captured["body"])
+    assert captured["body"]["thinking"] == {"type": "disabled"}
+    assert captured["body"]["max_tokens"] == 4096
 
 
 def test_provider_accepts_json_code_fence_without_relaxing_schema():
@@ -124,6 +126,82 @@ def test_provider_classifies_outer_and_content_json_errors_without_logging_body(
         ).encode(),
     ).analyze("role_a", _messages())
     assert content.metadata["error_code"] == "content_json_decode"
+
+
+def test_provider_classifies_reasoning_budget_exhaustion_without_using_reasoning_text():
+    response = json.dumps(
+        {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "reasoning_content": "synthetic reasoning that is not evidence",
+                    },
+                }
+            ]
+        }
+    ).encode()
+    output = OpenAICompatibleSemanticAnalyzer(
+        _config(), approved_source=True, transport=lambda *_: response
+    ).analyze("role_a", _messages())
+    assert output.status == "invalid_output"
+    assert output.metadata["error_code"] == "reasoning_exhausted_before_content"
+
+
+def test_provider_classifies_length_truncated_json_without_relaxing_validation():
+    response = json.dumps(
+        {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {
+                        "role": "assistant",
+                        "content": '{"schema_version":"profile-semantic-v1",',
+                    },
+                }
+            ]
+        }
+    ).encode()
+    output = OpenAICompatibleSemanticAnalyzer(
+        _config(), approved_source=True, transport=lambda *_: response
+    ).analyze("role_a", _messages())
+    assert output.status == "invalid_output"
+    assert output.metadata["error_code"] == "content_truncated"
+
+
+def test_provider_retries_invalid_semantic_output_and_keeps_only_valid_signals():
+    responses = [
+        _response({
+            "schema_version": OUTPUT_SCHEMA_VERSION,
+            "subject_id": "role_a",
+            "traits": [{
+                "category": "behavior_pattern",
+                "claim": "会使用无效证据引用",
+                "evidence_ids": ["missing"],
+                "counter_evidence_ids": [],
+                "rationale": "首响应仅用于测试失败重试",
+                "uncertainty": "需要重新请求",
+                "confidence": 0.2,
+                "conflict_status": "none",
+            }],
+        }),
+        _response(_payload()),
+    ]
+    calls = {"count": 0}
+
+    def transport(*_):
+        response = responses[min(calls["count"], len(responses) - 1)]
+        calls["count"] += 1
+        return response
+
+    output = OpenAICompatibleSemanticAnalyzer(
+        _config(), approved_source=True, transport=transport, sleeper=lambda _: None
+    ).analyze("role_a", _messages())
+    assert output.status == "ready"
+    assert calls["count"] == 2
+    assert output.metadata["semantic_retry_count"] == 1
 
 
 def test_provider_rejects_unknown_or_cross_direction_evidence():

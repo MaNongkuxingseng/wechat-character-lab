@@ -153,3 +153,53 @@
 5. [待办] 只暂存 P3-E 明确变更，中文+英文 scope 提交并推送目标分支。
 
 边界：P3-E 不接入真实 Role Agent，不改变 Mock 对话行为；无有效本地 key 时 Provider 网络验收记为 blocked。保留已有 P3-D 临时目录和未跟踪报告。
+## P3-E.1 真实 Provider 冒烟验收（2026-10-17）
+
+1. [completed] 核对分支、HEAD、工作区、P3-E 配置 API 与隔离数据库状态。
+2. [completed] 使用已由本机 UI 保存且不回显的 DeepSeek 凭据验证模型目录和实际模型 ID。
+3. [completed] 使用固定合成文本执行 `profile-semantic-v1` 真实协议测试并分类结果。
+4. [completed] 复核日志、Git 差异和敏感信息，生成不含密钥/正文的 P3-E.1 报告。
+
+边界：只使用系统临时目录的隔离 SQLite；不读取真实聊天，不运行 Inbox 测试，不生成画像或真实对话，不读取或输出 API Key。
+## P3-F 真实语义画像与双角色模拟（2026-10-17）
+
+1. [completed] 阶段 A：核对实际消息→语义→候选→审核→发布→consumer→会话链路，形成缺口清单。
+2. [completed] 阶段 B：用隔离 SQLite 和合成消息完成真实 Provider 画像生命周期，修复阻断缺陷。
+3. [completed] 阶段 C：接入真实 A/B Role Agent，记录模型/耗时/错误/画像版本并禁止静默 Mock 回退。
+4. [in_progress] 阶段 D：验证来源级授权、消息级安全门禁与未知状态拒绝，已输出真实数据外发摘要，等待用户确认。
+5. [pending] 阶段 E：合成全链路与受控真实数据 52 轮验收、浏览器复核、工程检查、报告与提交。
+
+约束：不扫描 data/ 或 Inbox；不读取真实消息正文；真实数据外发前必须再次取得针对本次范围的确认；使用隔离数据库；不运行 `backend/tests/test_imports.py`；不把失败回退为 Mock。
+
+2026-10-18 续接：用户已明确“确认外发”。阶段 D 已完成；授权仅覆盖已核验哈希的单一 ZIP、既定 A/B 映射和有界必要文本。现进入阶段 E，使用新隔离数据库与独立 Inbox 完成真实画像生命周期、浏览器复核和“复合”主题 52 轮真实 LLM 验收。
+
+错误记录：P3-F 首次定向测试为 19 passed / 1 failed，配置变化先被分类为 `provider_not_verified`；现已优先比较会话冻结摘要并返回更具体的 `provider_config_changed`，复测 20 passed。
+合成验收脚本首次以文件路径启动时未加载 `backend` 模块路径，已改为 `python -m`；随后在合成 Source/Message 同批 flush 时触发外键约束，事务完整回滚，已增加显式 `db.flush()`，两次均未发起 Provider 请求。
+续接只读定位错误：摘要中的 `ImportWorkspace.tsx`、`ProfileWorkspace.tsx`、`ConversationWorkspace.tsx` 在当前仓库不存在；未做修改，改用 `rg --files frontend/src` 定位到实际的 `*Workbench.tsx` 组件。
+
+## P3-F 协议失败修复续接（2026-10-18）
+
+### 本轮最终交付（completed）
+
+- `reasoning_exhausted_before_content`：关闭 DeepSeek thinking 并将 max_tokens 提升至 4096。
+- `content_truncated`：增加长度分类、有限重试和最多 8 个 trait 的输出约束。
+- `semantic_evidence_reference_invalid`：非法 evidence 引用触发有限重试，第二次同输入通过。
+- `invalid_security_flag`：可信人工声明允许未知标记有界回指，原始 None 语义保留。
+- 真实快照完成 16 条语义候选接受、14 条非语义候选拒绝、16 条准入和 16 条正式发布。
+- 真实“复合”会话完成 52/52 轮，A/B 各 26，失败 0，Mock 回退 0；明文记录留在系统临时隔离目录。
+
+1. [completed] 确认真实失败阶段：外层 Chat Completions JSON 可解析，失败发生在 `message.content` 到 `profile-semantic-v1` JSON 的内容解析阶段，脱敏错误码为 `content_json_decode`。
+2. [in_progress] 对已授权、隔离的真实样本执行一次仅输出响应结构元数据的复核，确认 reasoning/Markdown/后置文本包装形态；不记录原始聊天或模型正文。
+3. [pending] 实现最小安全解析兼容，继续保持 schema、角色、证据 ID、support/counter 和敏感内容校验严格；补充回归测试。
+4. [pending] 重新运行真实 A/B 有界分析；若得到合法候选，再完成审核、准入、正式发布和真实对话验收；若仍阻断，记录新的具体错误。
+5. [pending] 运行后端受限回归、Ruff、前端检查、diff/敏感检查，更新交付报告并提交推送。
+
+## 错误记录
+
+| 错误 | 当前证据 | 处理 |
+|---|---|---|
+| `content_json_decode` | 三次真实 A/B 请求均在内容 JSON 解析阶段失败；未进入 evidence/schema 校验 | 先采集脱敏响应结构，再针对实际包装修复 |
+token usage 定向测试 14 passed；首次定向 Ruff 仅发现 `_parse_usage()` 一处 103 字符行宽问题，已拆行修正。另一次只读定位把 Provider model 猜成 `models/providers.py`，实际模型位置待用 `rg` 定位，未发生修改。
+真实 ZIP 的首次页面上传已能选择文件，但后端因 `INBOX_PATH` 位于仓库外而在 `archive.relative_to(root)` 抛出 500；文件只复制到隔离 Inbox，未执行分析或外发。已新增 Inbox 相对路径契约并兼容旧仓库相对路径，定向测试 15 passed、Ruff 通过；后续从页面扫描现有副本，不重复上传。
+真实语义首次 A/B 均为 `invalid_output`；增加脱敏 error code 和 `max_tokens=1200` 后第二次仍失败，具体为 A/B 均 `JSONDecodeError`。已增加仅剥离完整 Markdown JSON 围栏的解析兼容，不放宽 schema、角色或证据校验；该兼容测试 7 passed，首次 Ruff 仅一处测试行宽待复跑。
+第三次有界真实分析在围栏兼容后仍无候选；为后续诊断已将 JSON 错误细分为 `response_json_decode` / `content_json_decode`，测试 8 passed、Ruff 通过。本轮不再发起真实请求；验收按真实画像阻断、0/52 收尾。

@@ -1,5 +1,14 @@
 # 现状发现与关键决策
 
+## 2026-10-18：P3-F 真实数据外发确认
+
+- 用户已明确确认本次外发；授权对象仅为 `.p3d-ui-inbox-real-20261017/selected-real-sample-attested.zip`，SHA-256 为 `6BF4E68A9F805590110EE4CA7EEC6544DA4D65661D6C8A1A86CFEF2C4810729E`。
+- 角色映射固定为发言人 1 → `role_a`、发言人 2 → `role_b`，不得根据正文或昵称重新猜测。
+- 只向已配置 DeepSeek Provider 发送通过来源授权、安全门禁且角色隔离的有界必要文本；不发送整份归档、媒体或无关第三方消息。
+- 完整对话正文和隔离 SQLite 仅保存在 `%TEMP%`，不得提交 Git。
+- 页面从隔离 Inbox 扫描到唯一 ZIP：37,769 条消息、两位发言人；预览能解析时间戳和文本。报告仅保留匿名角色与聚合计数，不记录发言人身份或原始正文。
+- 首次上传暴露仓库外 Inbox 路径注册缺陷；修复后由页面扫描已有只读副本成功登记，未重复发送或删除原文件。
+
 ## 2026-10-17 P3-C 执行准备
 
 - 执行前 Git：分支 `feature/p2b-workspace-updates`，HEAD `b008fd6`，工作区干净并跟踪 `origin/feature/p2b-workspace-updates`。
@@ -138,6 +147,13 @@
 - 定向 P3-C、转换器、M1 profile engine 与 migration 测试合计 17 项通过；全受限后端回归 `backend/tests --ignore=backend/tests/test_imports.py` 为 116 项通过。Starlette/httpx、pytest-asyncio、Alembic 存在 6 条弃用告警。
 - 前端 `pnpm run typecheck` 和 `pnpm run build` 均通过；Vite 构建生成的 `frontend/dist` 未出现在 Git 状态中。
 
+## 2026-10-18：P3-F 协议失败根因复核
+
+- 真实样本结果的错误码为 `content_json_decode`，代码路径位于 `OpenAICompatibleSemanticAnalyzer.analyze()`：外层响应 JSON、`choices`、`message.content` 已经通过，随后 `_parse_provider_json(content)` 失败。
+- 因此当前失败不是角色映射、证据 ID、support/counter 重叠或 `profile-semantic-v1` schema 拒绝；候选数为 0 是安全拒绝的结果。
+- 现有解析器只接受纯 JSON 或首尾完整的 Markdown JSON fence；真实模型可能返回 reasoning 标签、前置说明、代码 fence 变体或 JSON 后置说明，需要先确认实际形态，不能直接放宽为“截取任意大括号”。
+- 后续修复必须做到：只接受唯一可解析 JSON object；拒绝多对象/歧义内容；继续执行 schema、角色、证据引用和原文照抄校验；诊断只记录长度/包装类别，不记录聊天或模型正文。
+
 ## P3-E Provider 配置中心基线（2026-10-17）
 
 - 当前分支 `feature/p2b-workspace-updates`，HEAD `b18ae5c`；执行前只有已有未跟踪的 P3-D 临时目录和 R4/R5/R6 报告，没有 tracked diff/staged changes。
@@ -151,3 +167,24 @@
 - semantic analyzer 已有严格结构/证据校验及 no-redirect opener；错误 HTTP 分类目前只有 429、5xx 和其他拒绝，需扩充鉴权/模型不可用/TLS/DNS 分类。
 - 前端是 React 19 + Vite，无现成测试框架；以组件 API 行为实现、typecheck 和生产构建验证，不添加依赖。
 - 新增 `provider_configuration` 单例模型与 0008 migration；密文列为 BLOB，不存明文 secret。Windows DPAPI 不可用的平台拒绝保存新 key，保留安全失败。
+## P3-E.1 Provider 冒烟初始发现（2026-10-17）
+
+- 基线：`feature/p2b-workspace-updates` / `37591fe`，与远端一致；工作区仅有执行前已有的两个 P3-D 临时目录和三份未跟踪报告。
+- `backend/.env` 不存在；隔离后端使用 `%TEMP%/wechat-character-lab-p3e-ui/provider.db`。
+- 状态 API 安全返回：DeepSeek Endpoint、`deepseek-chat`、60 秒、Key 已配置、无环境变量覆盖；未返回密钥。
+- 当前连接状态为 `model_unavailable`，语义协议尚未测试；需用真实模型目录响应确认实际可用 ID，不能先验假定 `deepseek-v4-pro`。
+- 真实模型目录请求 HTTP 200，返回 `deepseek-flash`、`deepseek-v4-pro`；原 `deepseek-chat` 被正确分类为 `model_unavailable`。
+- UI 保存 `deepseek-v4-pro` 后，真实连接测试为 `success` / HTTP 200。
+- 固定合成文本的真实语义请求返回 `success`，通过 `profile-semantic-v1` 校验，产生 2 个信号。
+- 页面和状态 API 均显示连接/协议成功、语义可用；真实 Role Agent 与 A/B 对话继续为未接入/不可用。
+- Uvicorn 日志仅包含本机路由与 HTTP 状态，不含 Key、Authorization、合成消息或 Provider 响应正文。
+## P3-F 阶段 A 初步调用链（2026-10-17）
+
+- 真实语义路径已存在：`source_contract.analyze_and_persist_jsonl()` 从 approved Source 构造角色限定消息，调用 `resolve_provider_config(db).semantic_config()` 和 `OpenAICompatibleSemanticAnalyzer`，再由现有 candidate persistence 写入候选。
+- 候选审核、准入、正式画像 consumer 已存在，`ConversationOrchestrator._profile_context()` 每轮调用 `build_role_context()`，并与创建会话时保存的 `profile_snapshots` 比对，来源/证据失效会阻断后续生成。
+- 会话真实 Agent 缺失：`ConversationOrchestrator.__init__()` 固定实例化 `MockDirectorAgent` 和 `MockRoleAgent`；`create_role_turn()` 事件固定写 `provider=mock`。
+- P3-F 选择不新增会话表或迁移：`sessions.settings` 冻结 provider/model/config digest 与 A/B 画像快照，`session_events.payload` 记录逐轮 provider/model/status/latency/trace/profile version/trait IDs。
+- 真实会话必须由创建请求显式选择 `provider_mode=llm`；默认仍为 Mock。创建与每轮执行都会校验 Provider 配置，配置变化、失效或调用失败均不回退 Mock。
+- Director 保持确定性交替控制，Role Agent 才调用真实 Provider；这样保留既有暂停/继续/停止状态机，并避免让 LLM 决定角色归属。
+- 现有 Turn/SessionEvent 表可复用；无需创建第二套对话消息表。需要在现有 session settings/turn event 中记录真实 provider/model/latency/error/画像版本。
+- P3-F 应保持 director 为确定性轮换也可行，真实生成只需替换 RoleAgent；前端/API 必须区分 mode 并禁止真实失败回退 Mock。

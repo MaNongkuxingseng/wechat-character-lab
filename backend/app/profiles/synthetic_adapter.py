@@ -259,7 +259,10 @@ def _is_eligible_text(
                 UnmatchedEvidence(signal_id, evidence_id, "security_flag_missing", kind=kind)
             )
             return False
-        if not isinstance(message[field], bool):
+        value = message[field]
+        if value is None and _attested_unknown_security(message, field):
+            continue
+        if not isinstance(value, bool):
             errors.append(
                 UnmatchedEvidence(signal_id, evidence_id, "invalid_security_flag", kind=kind)
             )
@@ -287,6 +290,38 @@ def _is_eligible_text(
     if message["is_ai_generated"] or message["is_system"]:
         return False
     return True
+
+
+def _attested_unknown_security(message: Mapping[str, Any], field: str) -> bool:
+    """Allow an explicit human attestation without rewriting unknown flags.
+
+    Source-level attestation can authorize bounded transfer while the normalized
+    message keeps ``None`` for fields that the source cannot prove. Confirmed
+    unsafe or conflicting provenance never passes this helper.
+    """
+    attestation = message.get("security_attestation")
+    if not isinstance(attestation, Mapping) or not (
+        attestation.get("human_authored") is True
+        and attestation.get("contains_ai_generated") is False
+        and attestation.get("contains_system_messages") is False
+        and isinstance(attestation.get("reviewer_id"), str)
+        and bool(attestation["reviewer_id"].strip())
+        and isinstance(attestation.get("reason"), str)
+        and bool(attestation["reason"].strip())
+        and isinstance(attestation.get("attested_at"), str)
+        and bool(attestation["attested_at"].strip())
+    ):
+        return False
+    sources = message.get("security_flag_sources")
+    inputs = message.get("security_flag_inputs")
+    if not isinstance(sources, Mapping) or not isinstance(inputs, Mapping):
+        return False
+    if not isinstance(inputs.get("top_level"), Mapping) or not isinstance(
+        inputs.get("source_metadata"), Mapping
+    ):
+        return False
+    source = sources.get(field)
+    return isinstance(source, str) and source.startswith("unknown:")
 
 
 def _timestamp(message: Mapping[str, Any]) -> str | None:
