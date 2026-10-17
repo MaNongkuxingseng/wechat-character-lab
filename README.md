@@ -1,6 +1,6 @@
 # 微信角色实验室（WeChat Character Lab）
 
-这是一个本地优先（local-first）的双角色社交模拟系统。当前版本已提供基于已审核角色配置的本地 Mock A/B 自动对话、用户文字插话、会话停止、SQLite 事件持久化，以及 ASR/TTS 语音接口骨架；真实 LLM、ASR、TTS 和 WeChatBridge 仍未接入。
+这是一个本地优先（local-first）的双角色社交模拟系统。当前版本已提供基于已审核角色配置的本地 Mock A/B 自动对话、用户文字插话、会话停止、SQLite 事件持久化、LLM Provider 配置中心和语义画像 Provider 接口，以及 ASR/TTS 语音接口骨架；真实 A/B Role Agent、ASR、TTS 和 WeChatBridge 仍未接入。
 
 ## 环境要求
 
@@ -20,6 +20,14 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 ```
 
 API 文档地址为 `http://127.0.0.1:8001/docs`。后端默认只监听本机回环地址，不暴露到局域网。
+
+## LLM Provider 配置
+
+打开工作台右上角的“LLM 配置”，可保存 Provider 类型、HTTPS 基础 Endpoint、模型 ID、超时和功能开关。首次加载时表单建议值（DeepSeek、`https://api.deepseek.com`、`deepseek-v4-pro`）只是待保存目标，不代表服务端支持该模型。保存后可分别执行模型目录连接测试和 `profile-semantic-v1` 协议测试；协议测试只发送固定合成文本，不读取聊天数据库。配置接口不会回传 API Key。
+
+日常配置保存在本地 SQLite 的 Provider 配置表中。Windows 上 API Key 使用当前 Windows 用户的 DPAPI 加密后保存；其他操作系统会拒绝通过界面保存 API Key。请从运行后端的 Windows 用户上下文访问其配置数据库。不要手工把密钥写入仓库。若部署时改用进程环境变量或 `backend/.env`，显式设置的 `SEMANTIC_LLM_*` 字段（包括显式的 `false`）优先覆盖 UI 配置，页面会列出覆盖字段；覆盖生效时先前的测试状态显示为“尚未测试”。`.env.example` 中这些字段保持注释状态，因此复制模板不会意外锁定 UI 配置。按 README 中的后端启动方式从 `backend/` 目录启动，`.env` 才会按预期从该目录加载。
+
+语义画像运行还需同时开启语义分析和真实正文外发开关，并满足来源审批、可信声明、角色映射和来源级传输授权。Provider 配置页中的全局正文开关不替代这些来源级门禁。`dialogue_enabled` 只记录期望状态；当前 A/B Agent 仍为 Mock，配置成功不会启用真实对话。
 
 ## 启动前端
 
@@ -159,4 +167,4 @@ POST /api/roles/{role_id}/profiles/{version_id}/traits/{trait_id}/review，
 
 ## 数据与隐私
 
-本地 `data/` 目录和 `.env` 文件已加入 Git 忽略规则。不要提交聊天归档、逐字稿、音频、数据库文件或 Provider 凭证。当前 Bridge、LLM、ASR 和 TTS 实现均为 Mock，不会访问外部服务。
+本地 `data/` 目录和 `.env` 文件已加入 Git 忽略规则。不要提交聊天归档、逐字稿、音频、数据库文件或 Provider 凭证。真实语义 Provider 仅在显式配置并通过来源授权门禁后才会访问外部服务；当前 A/B Role Agent、Bridge、ASR 和 TTS 仍未接入真实服务。

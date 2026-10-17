@@ -222,6 +222,10 @@ class OpenAICompatibleSemanticAnalyzer:
                     continue
                 if status == 429:
                     raise _ProviderFailure("rate_limited") from None
+                if status in {401, 403}:
+                    raise _ProviderFailure("authentication_failed") from None
+                if status == 404:
+                    raise _ProviderFailure("model_unavailable") from None
                 if status >= 500:
                     raise _ProviderFailure("provider_unavailable") from None
                 raise _ProviderFailure("provider_rejected_request") from None
@@ -437,10 +441,11 @@ def create_semantic_analyzer(
     settings: Settings | None = None,
     *,
     approved_source: bool = False,
+    config: SemanticProviderConfig | None = None,
 ) -> OpenAICompatibleSemanticAnalyzer:
     """Create the configured provider without exposing credentials in logs."""
-    config = SemanticProviderConfig.from_settings(settings)
-    return OpenAICompatibleSemanticAnalyzer(config, approved_source=approved_source)
+    selected_config = config or SemanticProviderConfig.from_settings(settings)
+    return OpenAICompatibleSemanticAnalyzer(selected_config, approved_source=approved_source)
 
 
 def _provider_config_digest(endpoint: str, model: str) -> str:

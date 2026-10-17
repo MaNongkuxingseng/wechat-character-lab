@@ -9,6 +9,7 @@ from app.models.candidates import (
 from app.models.imports import ImportedMessage, Source
 from app.models.memory import Memory
 from app.models.profiles import ProfileEvidence, ProfileTrait, ProfileVersion
+from app.models.provider import ProviderConfiguration
 from app.models.role import Role
 from app.models.session import ConversationSession, SessionEvent, Turn
 from app.models.voice import VoiceAnalysis
@@ -26,6 +27,7 @@ __all__ = [
     "ProfileEvidence",
     "ProfileTrait",
     "ProfileVersion",
+    "ProviderConfiguration",
     "Role",
     "SessionEvent",
     "Source",

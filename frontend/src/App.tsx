@@ -3,6 +3,7 @@ import { ChatTimeline } from "./components/ChatTimeline";
 import { CandidateWorkbench } from "./components/CandidateWorkbench";
 import { ImportWorkbench } from "./components/ImportWorkbench";
 import { ProfileWorkbench } from "./components/ProfileWorkbench";
+import { ProviderWorkbench } from "./components/ProviderWorkbench";
 import { RoleBadge } from "./components/RoleBadge";
 import { TopicPanel } from "./components/TopicPanel";
 import { VoiceControls } from "./components/VoiceControls";
@@ -13,6 +14,7 @@ export default function App() {
   const [turnDelay, setTurnDelay] = useState(4);
   const [roleIds, setRoleIds] = useState<[string, string]>(["role_a", "role_b"]);
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
+  const [showProvider, setShowProvider] = useState(false);
   const { roles, session, connection, events, error, startSession, sendMessage, stopSession, pauseOrResumeSession } = useSession();
   const connected = connection === "connected";
 
@@ -28,9 +30,14 @@ export default function App() {
           <span className="status-led" />
           {connection === "checking" ? "检查后端" : connected ? "本机服务已连接" : "后端未连接"}
         </div>
+        <button className="provider-nav-button" type="button" aria-expanded={showProvider} onClick={() => setShowProvider((open) => !open)}>
+          {showProvider ? "返回工作台" : "LLM 配置"}
+        </button>
       </header>
 
-      <div className="workspace" id="top">
+      {showProvider && <div className="provider-page"><ProviderWorkbench /></div>}
+
+      {!showProvider && <div className="workspace" id="top">
         <aside className="sidebar">
           <div className="sidebar-label">参与角色 <span>2</span></div>
           <div className="role-card">
@@ -120,7 +127,7 @@ export default function App() {
           />
           <footer className="page-footer"><span>WECHAT CHARACTER LAB</span><span>个人本地工作区</span></footer>
         </section>
-      </div>
+      </div>}
     </main>
   );
 }

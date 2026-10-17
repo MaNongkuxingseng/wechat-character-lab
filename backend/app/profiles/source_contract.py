@@ -28,6 +28,7 @@ from app.profiles.candidate_persistence import (
 )
 from app.profiles.jsonl_analyzer import ObservableAnalyzer, ProfileAnalyzer
 from app.profiles.jsonl_service import JsonlProfileResult
+from app.profiles.provider_runtime import resolve_provider_config
 from app.profiles.semantic_analyzer import create_semantic_analyzer
 
 
@@ -417,7 +418,10 @@ def analyze_and_persist_jsonl(
     selected_semantic_analyzer = (
         semantic_analyzer
         if transfer_authorized and semantic_analyzer is not None
-        else create_semantic_analyzer(approved_source=transfer_authorized)
+        else create_semantic_analyzer(
+            approved_source=transfer_authorized,
+            config=resolve_provider_config(db).semantic_config(),
+        )
     )
     result = analyze_normalized_messages(
         messages,

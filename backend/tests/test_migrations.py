@@ -37,6 +37,7 @@ def test_initial_migration_creates_schema_and_seed_roles(tmp_path, monkeypatch):
                 "profile_candidate_evidence",
                 "profile_candidate_review_events",
                 "voice_analyses",
+                "provider_configuration",
             }.issubset(set(inspector.get_table_names()))
             with engine.connect() as connection:
                 role_ids = {row[0] for row in connection.exec_driver_sql("SELECT id FROM roles")}
@@ -77,6 +78,7 @@ def test_candidate_migration_downgrade_removes_only_candidate_tables(tmp_path, m
                 "profile_evidence",
                 "voice_analyses",
             }.issubset(tables)
+            assert "provider_configuration" not in tables
         finally:
             engine.dispose()
     finally:

@@ -11,6 +11,9 @@ import type {
   VoiceAssets,
   VoiceAnalysis,
   VoiceCapabilities,
+  ProviderConfig,
+  ProviderStatus,
+  ProviderTestResult,
 } from "../types";
 
 // 开发环境默认连接新版本地 API；可用 VITE_API_BASE_URL 覆盖。
@@ -36,6 +39,36 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getHealth(): Promise<{ status: string }> {
   return request("/health");
+}
+
+export function getProviderConfig(): Promise<ProviderConfig> {
+  return request("/api/providers/config");
+}
+
+export function saveProviderConfig(payload: {
+  provider_type: string;
+  endpoint: string;
+  model: string;
+  api_key?: string;
+  clear_api_key?: boolean;
+  timeout_seconds: number;
+  semantic_enabled: boolean;
+  allow_message_content: boolean;
+  dialogue_enabled: boolean;
+}): Promise<ProviderConfig> {
+  return request("/api/providers/config", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export function testProviderConnection(): Promise<ProviderTestResult> {
+  return request("/api/providers/test-connection", { method: "POST" });
+}
+
+export function testSemanticProtocol(): Promise<ProviderTestResult> {
+  return request("/api/providers/test-semantic", { method: "POST" });
+}
+
+export function getProviderStatus(): Promise<ProviderStatus> {
+  return request("/api/providers/status");
 }
 
 export function getRoles(): Promise<RoleProfile[]> {

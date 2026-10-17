@@ -7,6 +7,48 @@ export interface RoleProfile {
   consent_status: string;
 }
 
+export interface ProviderConfig {
+  configured: boolean;
+  provider_type: "deepseek" | "openai" | "openai_compatible" | string;
+  endpoint: string | null;
+  model: string | null;
+  api_key_configured: boolean;
+  timeout_seconds: number;
+  semantic_enabled: boolean;
+  allow_message_content: boolean;
+  dialogue_enabled: boolean;
+  env_overrides: string[];
+  connection_test_status: string;
+  semantic_test_status: string;
+  connection_tested_at: string | null;
+  semantic_tested_at: string | null;
+  config_updated_at: string | null;
+}
+
+export interface ProviderTestResult {
+  status: string;
+  provider_type: string;
+  model: string | null;
+  http_status: number | null;
+  detail_code?: string | null;
+  available_models: string[];
+  protocol_version?: string | null;
+  signal_count?: number | null;
+  api_key_configured: boolean;
+  tested_at: string;
+}
+
+export interface ProviderStatus {
+  configured: boolean;
+  connection_test_status: string;
+  semantic_test_status: string;
+  semantic_available: boolean;
+  message_content_transfer_ready: boolean;
+  dialogue_agent_implemented: boolean;
+  dialogue_available: boolean;
+  effective_config: ProviderConfig;
+}
+
 export interface SessionRead {
   id: string;
   mode: "daily" | "topic";

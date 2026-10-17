@@ -137,3 +137,17 @@
 - 首次 Ruff 检查发现 `test_p3c_source_contract.py` 存在多余空行，按 `ruff check --diff` 修正；后续定向 Ruff 与 `ruff check backend scripts/convert_wechatauto_export.py` 通过。
 - 定向 P3-C、转换器、M1 profile engine 与 migration 测试合计 17 项通过；全受限后端回归 `backend/tests --ignore=backend/tests/test_imports.py` 为 116 项通过。Starlette/httpx、pytest-asyncio、Alembic 存在 6 条弃用告警。
 - 前端 `pnpm run typecheck` 和 `pnpm run build` 均通过；Vite 构建生成的 `frontend/dist` 未出现在 Git 状态中。
+
+## P3-E Provider 配置中心基线（2026-10-17）
+
+- 当前分支 `feature/p2b-workspace-updates`，HEAD `b18ae5c`；执行前只有已有未跟踪的 P3-D 临时目录和 R4/R5/R6 报告，没有 tracked diff/staged changes。
+- `backend/app/config.py` 使用 `pydantic-settings` 的 `.env` 和环境变量；README 要求从 `backend/` 工作目录启动。provider `.env` 文件当前不存在，不从聊天或历史恢复 key。
+- `backend/.env.example` 已包含语义开关、endpoint、model、key、timeout 和输入上限字段；P3-E 需据此确认是否补 provider UI 所需默认/注释。
+- Semantic Provider 当前使用完整 Chat Completions endpoint；模型目录、协议测试和 UI 配置服务尚需实际检索确认。
+- `ConversationOrchestrator` 和 agents 当前仍是 Mock；P3-E 不更改此行为，状态 API 必须诚实报告真实 dialogue agent 未接入。
+- 设计决策待代码核查：配置保存应与运行时单一解析器共享；secret 采用 Windows OS-protected storage 或可验证的 DPAPI 封装，不得明文入 DB/报告/log。
+- 已确认 `backend/app/main.py` 的 CORS methods 目前只有 GET/POST/OPTIONS，P3-E 的配置 PUT 必须同步允许；`models.py` 实际为 `app/models/__init__.py` 聚合模型。
+- `create_semantic_analyzer()` 当前通过 `SemanticProviderConfig.from_settings()` 读取 `get_settings()` 缓存；需给它注入解析后的运行配置，确保 UI 保存值与分析器运行时一致。
+- semantic analyzer 已有严格结构/证据校验及 no-redirect opener；错误 HTTP 分类目前只有 429、5xx 和其他拒绝，需扩充鉴权/模型不可用/TLS/DNS 分类。
+- 前端是 React 19 + Vite，无现成测试框架；以组件 API 行为实现、typecheck 和生产构建验证，不添加依赖。
+- 新增 `provider_configuration` 单例模型与 0008 migration；密文列为 BLOB，不存明文 secret。Windows DPAPI 不可用的平台拒绝保存新 key，保留安全失败。
