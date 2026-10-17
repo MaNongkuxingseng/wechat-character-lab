@@ -69,6 +69,7 @@ textarea { display: block; width: 100%; resize: vertical; min-height: 82px; padd
 textarea:focus { border-color: #75a58a; box-shadow: 0 0 0 3px #e7f1e9; }
 textarea::placeholder { color: #a2aaa4; }
 .topic-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 11px; }
+.topic-actions input[type="number"] { width: 76px; min-height: 34px; border: 1px solid #cfd8d1; border-radius: 4px; padding: 0 8px; }
 .field-hint { color: #9aa29c; font-size: 10px; }
 .primary-button { display: flex; align-items: center; gap: 16px; min-height: 35px; padding: 0 12px; border: 0; border-radius: 4px; background: #34745a; color: #fff; cursor: pointer; font-size: 11px; }
 .primary-button:hover:not(:disabled) { background: #285f48; }

@@ -129,7 +129,7 @@ export function ProviderWorkbench() {
       <header className="provider-header">
         <div className="section-heading">
           <span className="section-index">LLM</span>
-          <div><h2 id="provider-heading">Provider 配置</h2><p>凭据保存在本机受保护存储中；真实 Agent 尚未接入。</p></div>
+          <div><h2 id="provider-heading">Provider 配置</h2><p>凭据保存在本机受保护存储中；真实对话必须在新建会话时显式选择。</p></div>
         </div>
         <button className="secondary-button" type="button" onClick={() => void reload()} disabled={Boolean(busy)} title="重新加载配置">重新加载</button>
       </header>
@@ -174,7 +174,7 @@ export function ProviderWorkbench() {
             开启正文外发会把经授权范围内的聊天正文发送到外部模型。仍须逐来源审核、可信声明、语义传输授权、明确 A/B 映射及有界样本；此开关不会自动批准来源或启动分析。
           </div>
           <label className="provider-toggle"><input type="checkbox" checked={form.dialogue_enabled} onChange={(event) => update("dialogue_enabled", event.target.checked)} />期望启用 A/B 真实对话</label>
-          <p className="provider-unavailable">真实 Role Agent 尚未接入；保存此开关不会改变当前 Mock 会话路径。</p>
+          <p className="provider-unavailable">开启后仍不会自动外发；需通过连接测试，并在新建会话时显式选择真实 LLM。</p>
 
           <div className="provider-actions">
             <button className="primary-button" type="submit" disabled={Boolean(busy) || !form.endpoint.trim() || !form.model.trim()}>{busy === "save" ? "保存中…" : "保存配置"}</button>

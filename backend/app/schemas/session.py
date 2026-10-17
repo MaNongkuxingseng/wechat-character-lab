@@ -14,6 +14,7 @@ class SessionCreate(BaseModel):
     role_ids: list[str] = Field(
         default_factory=lambda: ["role_a", "role_b"], min_length=2, max_length=2
     )
+    provider_mode: Literal["mock", "llm"] = "mock"
 
     @field_validator("role_ids")
     @classmethod

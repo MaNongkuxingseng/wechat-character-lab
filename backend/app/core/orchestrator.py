@@ -13,8 +13,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agents.mock_agents import MockDirectorAgent, MockRoleAgent
+from app.agents.real_agent import RealRoleAgent
 from app.models import ConversationSession, Role, SessionEvent, Turn
 from app.profiles.consumer import RoleProfileContext, build_role_context
+from app.profiles.provider_runtime import provider_config_digest, resolve_provider_config
+from app.providers.openai_compatible import (
+    DialogueProviderError,
+    LLMGeneration,
+    OpenAICompatibleLLMProvider,
+)
 from app.schemas.role import RoleProfile
 from app.schemas.session import SessionRead
 
@@ -120,7 +127,31 @@ class ConversationOrchestrator:
             [feature.claim for feature in profile_context.features],
             intent=str(plan.get("intent") or "respond"),
         )
-        text = await self.role_agent.respond(role_profile, context)
+        provider_mode = str(session.settings.get("provider", "mock"))
+        generation: LLMGeneration | None = None
+        try:
+            if provider_mode == "llm":
+                provider = self._dialogue_provider(session)
+                generation = await RealRoleAgent(provider).respond(role_profile, context)
+                text = generation.text
+            else:
+                text = await self.role_agent.respond(role_profile, context)
+                if not isinstance(text, str):
+                    raise TypeError("mock_agent_response_not_text")
+        except DialogueProviderError as exc:
+            self.record_event(
+                "generation.failed",
+                {
+                    "speaker_role_id": role_id,
+                    "provider": session.settings.get("provider_type", "unknown"),
+                    "model": session.settings.get("model"),
+                    "status": "failed",
+                    "error_code": exc.code,
+                    "profile_version_id": profile_context.profile_version_id,
+                    "trait_ids": list(profile_context.usage.get("trait_ids", [])),
+                },
+            )
+            raise
         sequence = session.turn_count + 1
         turn = Turn(
             id=str(uuid4()),
@@ -145,7 +176,11 @@ class ConversationOrchestrator:
             "interrupted": False,
             "profile_version_id": profile_context.profile_version_id,
             "trait_ids": list(profile_context.usage.get("trait_ids", [])),
-            "provider": "mock",
+            "provider": generation.provider if generation else "mock",
+            "model": generation.model if generation else None,
+            "generation_status": "success",
+            "latency_ms": generation.latency_ms if generation else 0,
+            "trace_id": generation.trace_id if generation else None,
         }
         outputs = [
             self.record_event("turn.created", payload),
@@ -154,6 +189,25 @@ class ConversationOrchestrator:
         if session.turn_count >= session.turn_limit:
             outputs.append(self.set_state(SessionState.COMPLETED))
         return outputs
+
+    def _dialogue_provider(
+        self, session: ConversationSession
+    ) -> OpenAICompatibleLLMProvider:
+        config = resolve_provider_config(self.db)
+        if not config.configured:
+            raise DialogueProviderError("provider_misconfigured")
+        if not config.dialogue_enabled:
+            raise DialogueProviderError("dialogue_disabled")
+        expected = session.settings.get("provider_config_digest")
+        if not expected or expected != provider_config_digest(config):
+            raise DialogueProviderError("provider_config_changed")
+        if session.settings.get("provider_type") != config.provider_type:
+            raise DialogueProviderError("provider_config_changed")
+        if session.settings.get("model") != config.model:
+            raise DialogueProviderError("provider_config_changed")
+        if config.connection_test_status != "success":
+            raise DialogueProviderError("provider_not_verified")
+        return OpenAICompatibleLLMProvider(config)
 
     def _profile_context(
         self, session: ConversationSession, role_id: str

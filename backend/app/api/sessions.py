@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import ConversationSession
 from app.profiles.consumer import build_role_context
+from app.profiles.provider_runtime import provider_config_digest, resolve_provider_config
 from app.repositories.roles import get_roles_by_ids
 from app.repositories.sessions import get_session
 from app.schemas.session import SessionCreate, SessionRead
@@ -44,6 +45,21 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Con
         }
         for role_id, context in profile_contexts.items()
     }
+    provider_settings: dict[str, object] = {"provider": "mock"}
+    if payload.provider_mode == "llm":
+        provider = resolve_provider_config(db)
+        if not provider.configured:
+            raise HTTPException(409, detail={"code": "provider_not_configured"})
+        if not provider.dialogue_enabled:
+            raise HTTPException(409, detail={"code": "dialogue_disabled"})
+        if provider.connection_test_status != "success":
+            raise HTTPException(409, detail={"code": "provider_not_verified"})
+        provider_settings = {
+            "provider": "llm",
+            "provider_type": provider.provider_type,
+            "model": provider.model,
+            "provider_config_digest": provider_config_digest(provider),
+        }
     session = ConversationSession(
         id=str(uuid4()),
         mode=payload.mode,
@@ -54,7 +70,7 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)) -> Con
         settings={
             "role_ids": payload.role_ids,
             "turn_delay_seconds": payload.turn_delay_seconds,
-            "provider": "mock",
+            **provider_settings,
             "profile_snapshots": profile_snapshots,
             "profile_readiness": {
                 role_id: context["readiness"] for role_id, context in profile_contexts.items()

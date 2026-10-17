@@ -8,9 +8,13 @@ interface TopicPanelProps {
   roles: Array<{ id: string; label: string }>;
   roleIds: [string, string];
   onRoleIdsChange: (value: [string, string]) => void;
+  providerMode: "mock" | "llm";
+  onProviderModeChange: (value: "mock" | "llm") => void;
+  turnLimit: number;
+  onTurnLimitChange: (value: number) => void;
 }
 
-export function TopicPanel({ topic, onTopicChange, onStart, disabled, turnDelay, onTurnDelayChange, roles, roleIds, onRoleIdsChange }: TopicPanelProps) {
+export function TopicPanel({ topic, onTopicChange, onStart, disabled, turnDelay, onTurnDelayChange, roles, roleIds, onRoleIdsChange, providerMode, onProviderModeChange, turnLimit, onTurnLimitChange }: TopicPanelProps) {
   return (
     <section className="topic-panel" aria-labelledby="topic-heading">
       <div className="section-heading">
@@ -44,6 +48,14 @@ export function TopicPanel({ topic, onTopicChange, onStart, disabled, turnDelay,
           <select aria-label="轮间等待" value={turnDelay} onChange={(event) => onTurnDelayChange(Number(event.target.value))} disabled={disabled}>
             <option value={2}>2 秒</option><option value={4}>4 秒</option><option value={8}>8 秒</option>
           </select>
+        </label>
+        <label className="field-hint">生成模式
+          <select aria-label="生成模式" value={providerMode} onChange={(event) => onProviderModeChange(event.target.value as "mock" | "llm")} disabled={disabled}>
+            <option value="mock">本地 Mock</option><option value="llm">真实 LLM</option>
+          </select>
+        </label>
+        <label className="field-hint">角色轮数
+          <input aria-label="角色轮数" type="number" min={2} max={100} value={turnLimit} onChange={(event) => onTurnLimitChange(Number(event.target.value))} disabled={disabled} />
         </label>
         <button className="primary-button" type="button" onClick={onStart} disabled={disabled || !topic.trim()}>
           创建会话

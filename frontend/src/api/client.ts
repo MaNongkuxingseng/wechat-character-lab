@@ -75,10 +75,23 @@ export function getRoles(): Promise<RoleProfile[]> {
   return request("/api/roles");
 }
 
-export function createSession(topic: string, turnDelaySeconds = 4, roleIds = ["role_a", "role_b"]): Promise<SessionRead> {
+export function createSession(
+  topic: string,
+  turnDelaySeconds = 4,
+  roleIds = ["role_a", "role_b"],
+  providerMode: "mock" | "llm" = "mock",
+  turnLimit = 12,
+): Promise<SessionRead> {
   return request("/api/sessions", {
     method: "POST",
-    body: JSON.stringify({ mode: "topic", topic, role_ids: roleIds, turn_delay_seconds: turnDelaySeconds }),
+    body: JSON.stringify({
+      mode: "topic",
+      topic,
+      role_ids: roleIds,
+      turn_delay_seconds: turnDelaySeconds,
+      provider_mode: providerMode,
+      turn_limit: turnLimit,
+    }),
   });
 }
 

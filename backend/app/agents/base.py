@@ -1,12 +1,13 @@
 from typing import Protocol
 
+from app.providers.openai_compatible import LLMGeneration
 from app.schemas.role import RoleProfile
 
 
 class RoleAgent(Protocol):
     """角色 Agent 契约；实现只接收组装好的上下文，不自行访问存储。"""
 
-    async def respond(self, role: RoleProfile, context: str) -> str:
+    async def respond(self, role: RoleProfile, context: str) -> str | LLMGeneration:
         """根据角色配置和已授权上下文生成一条回复。"""
 
 

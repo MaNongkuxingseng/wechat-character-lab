@@ -1,6 +1,6 @@
 # 微信角色实验室（WeChat Character Lab）
 
-这是一个本地优先（local-first）的双角色社交模拟系统。当前版本已提供基于已审核角色配置的本地 Mock A/B 自动对话、用户文字插话、会话停止、SQLite 事件持久化、LLM Provider 配置中心和语义画像 Provider 接口，以及 ASR/TTS 语音接口骨架；真实 A/B Role Agent、ASR、TTS 和 WeChatBridge 仍未接入。
+这是一个本地优先（local-first）的双角色社交模拟系统。当前版本已提供本地 Mock 与显式选择的真实 LLM A/B 对话、用户文字插话、会话控制、SQLite 事件持久化、LLM Provider 配置中心和语义画像 Provider 接口，以及 ASR/TTS 语音接口骨架；ASR、TTS 和 WeChatBridge 仍未接入真实服务。
 
 ## 环境要求
 
@@ -27,7 +27,7 @@ API 文档地址为 `http://127.0.0.1:8001/docs`。后端默认只监听本机�
 
 日常配置保存在本地 SQLite 的 Provider 配置表中。Windows 上 API Key 使用当前 Windows 用户的 DPAPI 加密后保存；其他操作系统会拒绝通过界面保存 API Key。请从运行后端的 Windows 用户上下文访问其配置数据库。不要手工把密钥写入仓库。若部署时改用进程环境变量或 `backend/.env`，显式设置的 `SEMANTIC_LLM_*` 字段（包括显式的 `false`）优先覆盖 UI 配置，页面会列出覆盖字段；覆盖生效时先前的测试状态显示为“尚未测试”。`.env.example` 中这些字段保持注释状态，因此复制模板不会意外锁定 UI 配置。按 README 中的后端启动方式从 `backend/` 目录启动，`.env` 才会按预期从该目录加载。
 
-语义画像运行还需同时开启语义分析和真实正文外发开关，并满足来源审批、可信声明、角色映射和来源级传输授权。Provider 配置页中的全局正文开关不替代这些来源级门禁。`dialogue_enabled` 只记录期望状态；当前 A/B Agent 仍为 Mock，配置成功不会启用真实对话。
+语义画像运行还需同时开启语义分析和真实正文外发开关，并满足来源审批、可信声明、角色映射和来源级传输授权。Provider 配置页中的全局正文开关不替代这些来源级门禁。`dialogue_enabled` 允许用户在新建会话时显式选择“真实 LLM”，但保存配置不会自动切换既有或默认 Mock 会话。
 
 ## 启动前端
 
@@ -44,10 +44,10 @@ pnpm dev
 ## 文字对话
 
 在工作台输入主题并创建会话后，前端会自动建立
-`/api/sessions/{session_id}/events` WebSocket，并发送 `session.start`。本地 Mock Director
-按 A/B 轮流选择发言角色，Mock Role Agent 根据主题、角色资料和最近 6 条 Turn 生成可识别的占位文本。
+`/api/sessions/{session_id}/events` WebSocket，并发送 `session.start`。确定性 Director
+按 A/B 轮流选择发言角色；默认 Mock Role Agent 生成明确标识的本地演示文本。选择“真实 LLM”时，后端要求 Provider 已配置、`dialogue_enabled=true` 且连接测试仍与当前配置摘要一致，再调用 OpenAI-compatible Role Agent。
 用户可在时间线底部发送 `user.message` 插话，或发送 `session.stop` 停止后续轮次。每条 `Turn`
-和 `SessionEvent` 均写入 SQLite，便于后续实现断线回放和真实 Provider 替换。
+和 `SessionEvent` 均写入 SQLite。真实会话在创建时冻结 Provider/model 与 A/B 正式画像版本、trait ID；每轮重新校验 Provider 配置和画像证据有效性。配置或画像变化、来源撤销及 Provider 错误都会明确失败，不会静默回退 Mock。
 
 默认轮间等待 4 秒，界面可选择 2/4/8 秒；创建 API 的 `turn_delay_seconds` 支持 0.5–60 秒。
 `session.pause` 暂停、`session.resume` 继续；暂停期间仍可插话。插话/暂停/停止会取消后台
@@ -55,7 +55,7 @@ generation 并记录 `generation.cancelled`；用户消息不改变 A/B 轮换�
 Turn（含用户插话）。已结束会话拒绝插话与重新启动；界面需新建会话。断线时自动暂停。
 
 当前事件类型包括：`connection.ready`、`session.state`、`turn.created`、`message.created`、
-`event.accepted`、`protocol.error`。Mock 台词不代表已经完成真实性格复现。
+`generation.failed`、`generation.cancelled`、`event.accepted`、`protocol.error`。真实成功事件记录 provider、model、耗时、trace ID、画像版本和 trait ID，但不记录 API Key、认证头或画像证据正文。Mock 台词不代表已经完成真实性格复现。
 
 ## 语音接口（Mock）
 
@@ -167,4 +167,4 @@ POST /api/roles/{role_id}/profiles/{version_id}/traits/{trait_id}/review，
 
 ## 数据与隐私
 
-本地 `data/` 目录和 `.env` 文件已加入 Git 忽略规则。不要提交聊天归档、逐字稿、音频、数据库文件或 Provider 凭证。真实语义 Provider 仅在显式配置并通过来源授权门禁后才会访问外部服务；当前 A/B Role Agent、Bridge、ASR 和 TTS 仍未接入真实服务。
+本地 `data/` 目录和 `.env` 文件已加入 Git 忽略规则。不要提交聊天归档、逐字稿、音频、数据库文件、完整生成对话或 Provider 凭证。真实语义分析只在显式配置并通过来源授权门禁后发送有界消息正文；真实 Role Agent 使用已发布画像 claim 和有限会话历史，不读取候选表或原始画像证据。Bridge、ASR 和 TTS 仍未接入真实服务。

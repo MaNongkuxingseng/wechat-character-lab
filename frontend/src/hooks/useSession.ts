@@ -33,10 +33,16 @@ export function useSession() {
     };
   }, []);
 
-  const startSession = useCallback(async (topic: string, turnDelaySeconds = 4, roleIds = ["role_a", "role_b"]) => {
+  const startSession = useCallback(async (
+    topic: string,
+    turnDelaySeconds = 4,
+    roleIds = ["role_a", "role_b"],
+    providerMode: "mock" | "llm" = "mock",
+    turnLimit = 12,
+  ) => {
     setError(null);
     try {
-      const created = await createSession(topic, turnDelaySeconds, roleIds);
+      const created = await createSession(topic, turnDelaySeconds, roleIds, providerMode, turnLimit);
       setSession(created);
       setEvents([]);
       socketRef.current?.close();

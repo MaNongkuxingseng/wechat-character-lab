@@ -36,6 +36,7 @@ class ImportPreviewRead(BaseModel):
 
     source: ImportSourceRead
     speakers: dict[str, int] = Field(default_factory=dict)
+    speaker_mapping: dict[str, str] = Field(default_factory=dict)
     samples: list[ImportPreviewMessage] = Field(default_factory=list)
 
 

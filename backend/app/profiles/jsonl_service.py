@@ -397,6 +397,8 @@ def _validate_analyzer_output(output: Any, *, expected_sample_count: int) -> Non
             "invalid_output",
             "provider_unavailable",
             "provider_rejected_request",
+            "authentication_failed",
+            "model_unavailable",
             "rate_limited",
             "timeout",
             "provider_error",

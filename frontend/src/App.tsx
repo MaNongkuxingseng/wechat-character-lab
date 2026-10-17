@@ -12,6 +12,8 @@ import { useSession } from "./hooks/useSession";
 export default function App() {
   const [topic, setTopic] = useState("");
   const [turnDelay, setTurnDelay] = useState(4);
+  const [turnLimit, setTurnLimit] = useState(12);
+  const [providerMode, setProviderMode] = useState<"mock" | "llm">("mock");
   const [roleIds, setRoleIds] = useState<[string, string]>(["role_a", "role_b"]);
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const [showProvider, setShowProvider] = useState(false);
@@ -85,12 +87,16 @@ export default function App() {
               <TopicPanel
                 topic={topic}
                 onTopicChange={setTopic}
-                onStart={() => void startSession(topic.trim(), turnDelay, roleIds)}
+                onStart={() => void startSession(topic.trim(), turnDelay, roleIds, providerMode, turnLimit)}
                 turnDelay={turnDelay}
                 onTurnDelayChange={setTurnDelay}
                 roles={roles}
                 roleIds={roleIds}
                 onRoleIdsChange={setRoleIds}
+                providerMode={providerMode}
+                onProviderModeChange={setProviderMode}
+                turnLimit={turnLimit}
+                onTurnLimitChange={setTurnLimit}
                 disabled={!connected || Boolean(session && ["created", "initializing", "running", "paused", "stopping"].includes(session.status))}
               />
               {error && <div className="error-banner" role="alert">{error}</div>}
@@ -110,7 +116,7 @@ export default function App() {
                   <div><h2>运行状态</h2><p>本地工程骨架</p></div>
                 </div>
                 <dl className="runtime-list">
-                  <div><dt>会话引擎</dt><dd>Mock / 待接入</dd></div>
+                  <div><dt>会话引擎</dt><dd>Mock / 真实 LLM</dd></div>
                   <div><dt>资料库</dt><dd>SQLite</dd></div>
                   <div><dt>导入适配器</dt><dd>WeChat ZIP / 本地</dd></div>
                   <div><dt>分析器</dt><dd>点击生成草稿</dd></div>

@@ -103,6 +103,22 @@ def preview_import(source_id: str, db: Session = Depends(get_db)) -> ImportPrevi
                 .group_by(ImportedMessage.speaker_label)
             ).all()
         )
+        role_rows = db.execute(
+            select(ImportedMessage.speaker_label, ImportedMessage.speaker_role_id)
+            .where(
+                ImportedMessage.source_id == source.id,
+                ImportedMessage.speaker_role_id.is_not(None),
+            )
+            .distinct()
+        ).all()
+        role_sets: dict[str, set[str]] = {}
+        for speaker, role_id in role_rows:
+            role_sets.setdefault(speaker, set()).add(role_id)
+        speaker_mapping = {
+            speaker: next(iter(role_ids))
+            for speaker, role_ids in role_sets.items()
+            if len(role_ids) == 1
+        }
     elif source.status == "pending_review":
         try:
             path = _source_path(source)
@@ -118,12 +134,15 @@ def preview_import(source_id: str, db: Session = Depends(get_db)) -> ImportPrevi
         for message in messages:
             counts[message.speaker_label] = counts.get(message.speaker_label, 0) + 1
         messages = messages[:PREVIEW_LIMIT]
+        speaker_mapping = {}
     else:
         messages = []
         counts = {}
+        speaker_mapping = {}
     return ImportPreviewRead(
         source=_source_read(source),
         speakers=counts,
+        speaker_mapping=speaker_mapping,
         samples=[
             ImportPreviewMessage(
                 speaker_label=message.speaker_label,

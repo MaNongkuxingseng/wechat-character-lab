@@ -97,8 +97,12 @@ def get_provider_status(db: Session = Depends(get_db)):
         "semantic_test_status": effective.semantic_test_status,
         "semantic_available": semantic_available,
         "message_content_transfer_ready": semantic_available,
-        "dialogue_agent_implemented": False,
-        "dialogue_available": False,
+        "dialogue_agent_implemented": True,
+        "dialogue_available": (
+            effective.configured
+            and effective.dialogue_enabled
+            and effective.connection_test_status == "success"
+        ),
         "effective_config": read,
     }
 

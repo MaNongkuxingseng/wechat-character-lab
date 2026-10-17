@@ -194,7 +194,7 @@ def test_semantic_protocol_endpoint_uses_only_synthetic_text(client, monkeypatch
     assert all(item["content"] != "" for item in calls[0][1])
 
     status = client.get("/api/providers/status").json()
-    assert status["dialogue_agent_implemented"] is False
+    assert status["dialogue_agent_implemented"] is True
     assert status["dialogue_available"] is False
 
 

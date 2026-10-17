@@ -58,6 +58,8 @@ export interface SessionRead {
   turn_count: number;
   settings: {
     provider?: string;
+    provider_type?: string;
+    model?: string;
     profile_readiness?: Record<string, string>;
     profile_snapshots?: Record<string, { profile_version_id: string | null; trait_ids: string[]; readiness: string }>;
   };
@@ -202,6 +204,7 @@ export interface CandidateAnalysisResult {
 export interface ImportPreview {
   source: ImportSource;
   speakers: Record<string, number>;
+  speaker_mapping: Record<string, string>;
   samples: Array<{
     speaker_label: string;
     text: string;

@@ -69,9 +69,12 @@ export function ImportWorkbench({ roles, connected }: ImportWorkbenchProps) {
       .then((nextPreview) => {
         if (!active) return;
         setPreview(nextPreview);
-        setSpeakerMapping((current) =>
+        setSpeakerMapping(
           Object.fromEntries(
-            Object.keys(nextPreview.speakers).map((speaker) => [speaker, current[speaker] ?? ""]),
+            Object.keys(nextPreview.speakers).map((speaker) => [
+              speaker,
+              nextPreview.speaker_mapping[speaker] ?? "",
+            ]),
           ),
         );
       })

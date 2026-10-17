@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import select
 
 from app.ingestion.security_flags import derive_security_flags
@@ -229,6 +230,43 @@ def test_source_without_transfer_authorization_never_calls_configured_provider(
     )
     assert calls["count"] == 0
     assert result.semantic_status == "source_transfer_not_authorized"
+
+
+@pytest.mark.parametrize("status", ["authentication_failed", "model_unavailable"])
+def test_source_analysis_preserves_classified_provider_failure(
+    test_session_factory, status
+):
+    from app.profiles.jsonl_analyzer import AnalyzerOutput
+    from app.profiles.source_contract import analyze_and_persist_approved_source
+
+    db = test_session_factory()
+    _seed_approved_source(db, transfer_authorized=True)
+
+    class FailedProvider:
+        name = "llm_semantic_openai_compatible"
+        version = "profile-semantic-v1"
+
+        def analyze(self, subject_id, messages):
+            return AnalyzerOutput(self.name, self.version, status, len(messages), ())
+
+    result = analyze_and_persist_approved_source(
+        db, "synthetic-approved-source", semantic_analyzer=FailedProvider()
+    )
+    assert result.semantic_status == status
+    assert result.persistence.candidate_count > 0
+
+
+def test_approved_source_preview_reports_persisted_role_mapping(
+    client, test_session_factory
+):
+    db = test_session_factory()
+    _seed_approved_source(db, transfer_authorized=True)
+    preview = client.get("/api/imports/synthetic-approved-source/preview")
+    assert preview.status_code == 200
+    assert preview.json()["speaker_mapping"] == {
+        "Synthetic A": "role_a",
+        "Synthetic B": "role_b",
+    }
 
 
 def test_source_analysis_without_explicit_role_mapping_is_not_guessed(
